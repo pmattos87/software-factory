@@ -1,0 +1,15 @@
+{
+  "name": "software-factory",
+  "metadata": {
+    "description": "Pedro's development Workflow, packaged for every Consumer project"
+  },
+  "owner": {
+    "name": "Pedro Mattos"
+  },
+  "plugins": [
+    {
+      "name": "factory",
+      "source": "./plugin"
+    }
+  ]
+}
