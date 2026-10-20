@@ -46,7 +46,7 @@ Resolved 2026-10-20 with Pedro.
 | GitHub Releases | One per production tag; pre-release per beta tag; installers attached there |
 | Actions | Runs the PR checks from one reusable Factory workflow; *which* checks → [PR checks](10-pr-checks.md) |
 
-**Identities and enforcement.** The agent works as a separate machine account, **`pmattos-pr-review-agent`** (own account, email via a Proton `+` alias, collaborator on each repo, fine-grained token). Pedro's account is the approver.
+**Identities and enforcement.** The agent works as a separate machine account, **`pmattos-pr-review-agent`** (own account, email via a Proton `+` alias, collaborator on each repo, classic token, since a fine-grained one can't target Pedro's personal repos). Pedro's account is the approver. Setup details: [Bot account](../../reference/bot-account.md).
 
 Target design (needs GitHub Pro; private repos on Free return "Upgrade to GitHub Pro" for branch protection and rulesets):
 
