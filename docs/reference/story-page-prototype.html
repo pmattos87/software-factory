@@ -1,0 +1,270 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Run-tracking UI ticket (Software Factory map).
+  Question: does the dedicated Story page match what Pedro described?
+    - Story page replaces the slide-over (own route, opened from a board card).
+    - Top: description, Subtasks + Verify rounds, comments | stopped box, details, links, attachments.
+    - Middle: node graph of this Story's Run (styled after docs/reference/run-view-mockup.png).
+      Lanes: Plan · Build (per-Subtask loop) · Review → Integrate → Release.
+    - Bottom: Review rounds and the trail.
+  Static fake data: HL-142, Run stopped in Build after 2 failed Verify rounds on HL-142.3.
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story Page Prototype</title>
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<style>
+  html, body { background: #030712; color: #f3f4f6; color-scheme: dark; }
+  ::-webkit-scrollbar { width: 12px; height: 12px; } ::-webkit-scrollbar-track { background: #111827; }
+  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 6px; border: 2px solid #111827; }
+  .grid-bg { background-image: radial-gradient(#1f2937 1px, transparent 1px); background-size: 18px 18px; }
+</style>
+</head>
+<body class="font-sans text-sm">
+
+<!-- App top bar -->
+<div class="h-12 flex items-center gap-3 px-4 border-b border-gray-800">
+  <a class="text-gray-400 hover:text-white cursor-pointer">← Story board</a>
+  <span class="text-gray-600">/</span>
+  <span class="text-gray-300">Hammer Loc</span>
+  <span class="text-gray-600">/</span>
+  <span class="font-mono text-gray-400">HL-142</span>
+</div>
+
+<!-- Story header -->
+<div class="px-6 pt-5 pb-4">
+  <div class="flex items-center gap-2">
+    <span class="text-xs font-mono text-gray-500 bg-gray-800 px-2 py-0.5 rounded">HL-142</span>
+    <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-700">Story</span>
+    <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 border border-gray-700">building</span>
+    <span class="text-[11px] px-2 py-0.5 rounded-full bg-red-900/40 text-red-400 border border-red-700">● Run stopped</span>
+    <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700">Assignee: Pedro</span>
+  </div>
+  <h1 class="text-2xl font-semibold text-white mt-2">Export rental contract as PDF</h1>
+</div>
+
+<!-- Story sections -->
+<div class="px-6 pb-6 flex gap-6 items-start">
+  <div class="flex-1 min-w-0 space-y-6" id="main"></div>
+  <aside class="w-80 shrink-0 space-y-6" id="side"></aside>
+</div>
+
+<!-- Run graph -->
+<div class="px-6">
+  <div class="flex items-baseline justify-between mb-2">
+    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Run</h3>
+    <div class="flex gap-3 text-[11px] text-gray-500">
+      <span><span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span> done</span>
+      <span><span class="inline-block h-2 w-2 rounded-full bg-red-500"></span> stopped</span>
+      <span><span class="inline-block h-2 w-2 rounded-full border border-dashed border-gray-500"></span> not reached</span>
+    </div>
+  </div>
+  <div class="rounded-lg border border-gray-800 bg-[#0b0d12] grid-bg overflow-x-auto">
+    <div id="graph" class="relative" style="width:1490px;height:690px"></div>
+  </div>
+</div>
+
+<!-- Run history -->
+<div class="px-6 py-6 space-y-6" id="history"></div>
+
+<script>
+// ---------- graph data ----------
+const W = 176, H = 56, SW = 196, SH = 50;
+const KIND = {
+  TRIGGER: "text-amber-400", DESIGN: "text-purple-400", GATE: "text-gray-400", FLOWBOARD: "text-blue-400",
+  AGENT: "text-teal-400", GIT: "text-gray-400", REVIEW: "text-pink-400", SKILL: "text-green-400",
+};
+const ICON = { TRIGGER: "⚡", DESIGN: "✦", GATE: "◷", FLOWBOARD: "▣", AGENT: "◉", GIT: "⑂", REVIEW: "⌕", SKILL: "➤" };
+
+const lanes = [
+  { y: 12, label: "PLAN" },
+  { y: 150, label: "BUILD · PER-SUBTASK LOOP" },
+  { y: 456, label: "REVIEW → INTEGRATE → RELEASE" },
+];
+
+const N = {
+  // Plan
+  p1: { x: 20,   y: 38, t: "Story created", k: "FLOWBOARD", s: "done", cap: "backlog · Oct 13" },
+  p2: { x: 230,  y: 38, t: "Brief written", k: "DESIGN", s: "done", cap: "refining · grilling" },
+  p3: { x: 440,  y: 38, t: "Task splitter", k: "AGENT", s: "done", cap: "4 Subtasks · estimate + risk" },
+  p4: { x: 650,  y: 38, t: "Pedro approves", k: "GATE", s: "done", cap: "→ ready · Oct 14" },
+  p5: { x: 860,  y: 38, t: "Run started", k: "TRIGGER", s: "done", cap: "Pedro · Oct 16 → building" },
+  // Build
+  b1: { x: 20,   y: 290, t: "Orchestrator", k: "AGENT", s: "done", cap: "hands each Subtask out" },
+  v1: { x: 540,  y: 268, t: "Verify", k: "AGENT", s: "stopped", cap: "QA · tsc · biome · vitest" },
+  st: { x: 800,  y: 196, t: "Stop, tell Pedro", k: "GATE", s: "stopped", cap: "HL-142.3 failed r1 + r2", hot: true },
+  dc: { x: 800,  y: 340, t: "Docs", k: "AGENT", s: "todo", cap: "once per Story" },
+  // Review → Integrate → Release
+  r1: { x: 20,   y: 482, t: "Codex Review", k: "REVIEW", s: "todo", cap: "whole Story diff" },
+  fx: { x: 230,  y: 600, t: "Fix findings", k: "REVIEW", s: "todo", cap: "then re-review · max 2 rounds" },
+  r2: { x: 230,  y: 482, t: "PR opened", k: "GIT", s: "todo", cap: "PR gate: Review passed" },
+  r3: { x: 440,  y: 482, t: "Auto-merge → develop", k: "GIT", s: "todo", cap: "Integrate" },
+  r4: { x: 650,  y: 482, t: "In integrated tests", k: "GATE", s: "todo", cap: "Pedro tests on develop" },
+  r5: { x: 860,  y: 482, t: "Picked into Release", k: "FLOWBOARD", s: "todo", cap: "tested → release/vX.Y.Z" },
+  r6: { x: 1070, y: 482, t: "User testing", k: "TRIGGER", s: "todo", cap: "client contact · Client projects" },
+  r7: { x: 1280, y: 482, t: "Production", k: "SKILL", s: "todo", cap: "release → main · done" },
+};
+// Subtask fan-out (one node per Subtask, agent from its brief)
+const SUB = [
+  { id: "s1", key: "HL-142.1", t: "PDF template layout", who: "Implementer · Sonnet", rounds: ["pass"], s: "done" },
+  { id: "s2", key: "HL-142.2", t: "Contract data query", who: "pdf-documents · Opus", rounds: ["fail", "pass"], s: "done" },
+  { id: "s3", key: "HL-142.3", t: "Signature block", who: "Implementer · Sonnet", rounds: ["fail", "fail"], s: "stopped" },
+  { id: "s4", key: "HL-142.4", t: "Download button", who: "Implementer · Sonnet", rounds: [], s: "todo" },
+];
+SUB.forEach((s, i) => { N[s.id] = { x: 260, y: 182 + i * 66, sub: s, s: s.s, w: SW, h: SH }; });
+
+const E = [
+  ["p1", "p2"], ["p2", "p3"], ["p3", "p4"], ["p4", "p5"],
+  ["p5", "b1", { pts: [[948, 94], [948, 128], [108, 128], [108, 290]], label: "Pedro starts the Run", lx: 520, ly: 128 }],
+  ["b1", "s1"], ["b1", "s2"], ["b1", "s3"], ["b1", "s4"],
+  ["s1", "v1"], ["s2", "v1"], ["s3", "v1"], ["s4", "v1"],
+  ["v1", "st", { label: "fails twice" }],
+  ["v1", "dc", { label: "all pass" }],
+  ["dc", "r1", { pts: [[976, 368], [1010, 368], [1010, 440], [108, 440], [108, 482]], label: "every Subtask verified", lx: 560, ly: 440 }],
+  ["r1", "r2", { label: "clean" }], ["r2", "r3"], ["r3", "r4"],
+  ["r4", "r5", { label: "passed → tested" }], ["r5", "r6"], ["r6", "r7", { label: "approved" }],
+  ["r1", "fx", { pts: [[108, 538], [108, 628], [230, 628]], label: "findings", lx: 150, ly: 628 }],
+  ["r4", "b1", { pts: [[738, 538], [738, 672], [6, 672], [6, 318], [20, 318]], label: "bug found → bug Subtask, Story holds", lx: 370, ly: 672, bug: true }],
+];
+
+// ---------- graph render ----------
+const g = document.getElementById("graph");
+const size = (n) => [n.w ?? W, n.h ?? H];
+const R = (n) => [n.x + size(n)[0], n.y + size(n)[1] / 2];
+const L = (n) => [n.x, n.y + size(n)[1] / 2];
+const reached = (n) => n.s !== "todo";
+
+function edgeStyle(a, b, o) {
+  if (o.bug) return { stroke: "#f59e0b", dash: "6 5", op: 0.8 };
+  if (a.s === "stopped" || b.s === "stopped" && a.s !== "done") return { stroke: "#ef4444", dash: "", op: 0.9 };
+  if (b.s === "stopped") return { stroke: "#ef4444", dash: "", op: 0.9 };
+  if (reached(a) && reached(b)) return { stroke: "#34d399", dash: "", op: 0.7 };
+  return { stroke: "#4b5563", dash: "5 5", op: 0.8 };
+}
+let svg = `<svg class="absolute inset-0" width="1490" height="690">`;
+for (const [fa, fb, o = {}] of E) {
+  const a = N[fa], b = N[fb], st = edgeStyle(a, b, o);
+  let d, lx, ly;
+  if (o.pts) {
+    d = "M" + o.pts.map(p => p.join(" ")).join(" L");
+    lx = o.lx; ly = o.ly;
+  } else {
+    const [x1, y1] = R(a), [x2, y2] = L(b), c = Math.max(30, (x2 - x1) / 2);
+    d = `M${x1} ${y1} C${x1 + c} ${y1} ${x2 - c} ${y2} ${x2} ${y2}`;
+    lx = (x1 + x2) / 2; ly = (y1 + y2) / 2;
+  }
+  svg += `<path d="${d}" fill="none" stroke="${st.stroke}" stroke-width="1.6" stroke-dasharray="${st.dash}" opacity="${st.op}"/>`;
+  if (o.label) svg += `<text x="${lx}" y="${ly - 5}" fill="#9ca3af" font-size="11" font-style="italic" text-anchor="middle" paint-order="stroke" stroke="#0b0d12" stroke-width="4">${o.label}</text>`;
+}
+svg += `</svg>`;
+
+const badge = (s) => ({
+  done: `<span class="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-emerald-500 text-black text-[11px] flex items-center justify-center">✓</span>`,
+  stopped: `<span class="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">!</span>`,
+  todo: `<span class="absolute -top-2 -right-2 h-4 w-4 rounded-full bg-gray-700 border border-gray-600"></span>`,
+}[s]);
+const pill = (r, i) => `<span class="text-[9px] font-mono px-1 rounded ${r === "pass" ? "bg-emerald-900/50 text-emerald-400" : "bg-red-900/50 text-red-400"}">r${i + 1}${r === "pass" ? "✓" : "✗"}</span>`;
+
+let html = lanes.map(l => `<div class="absolute text-[10px] tracking-widest text-gray-500 font-semibold" style="left:20px;top:${l.y}px">${l.label}</div>`).join("");
+for (const [id, n] of Object.entries(N)) {
+  const [w, h] = size(n);
+  const frame = n.s === "stopped"
+    ? "border-red-500/70 shadow-[0_0_18px_rgba(239,68,68,0.35)]"
+    : n.s === "todo" ? "border-dashed border-gray-700 opacity-50" : "border-gray-700";
+  if (n.sub) {
+    const s = n.sub;
+    html += `<div class="absolute rounded-lg border bg-[#11141b] ${frame} px-3 py-1.5" style="left:${n.x}px;top:${n.y}px;width:${w}px;height:${h}px">
+      ${badge(n.s)}
+      <div class="flex items-center gap-1.5"><span class="text-[10px] font-mono text-gray-500">${s.key}</span><span class="text-[12px] text-white truncate">${s.t}</span></div>
+      <div class="flex items-center gap-1.5 mt-1"><span class="text-[10px] font-semibold text-teal-400 uppercase">${s.who}</span><span class="flex gap-0.5">${s.rounds.map(pill).join("")}</span></div>
+    </div>`;
+    continue;
+  }
+  html += `<div class="absolute" style="left:${n.x}px;top:${n.y}px;width:${w}px">
+    <div class="relative rounded-lg border bg-[#11141b] ${frame} px-3 flex items-center gap-2.5" style="height:${h}px">
+      ${badge(n.s)}
+      <span class="h-7 w-7 rounded-md bg-gray-800 flex items-center justify-center ${KIND[n.k]}">${ICON[n.k]}</span>
+      <div class="min-w-0"><div class="text-[13px] text-white font-medium truncate">${n.t}</div>
+      <div class="text-[10px] font-semibold tracking-wide ${KIND[n.k]}">${n.k}</div></div>
+    </div>
+    <div class="text-[10px] font-mono text-gray-500 mt-1 truncate">${n.cap}</div>
+  </div>`;
+}
+g.innerHTML = svg + html;
+
+// ---------- sections ----------
+const h3 = (t) => `<h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">${t}</h3>`;
+const card = (inner) => `<section class="rounded-lg border border-gray-800 bg-gray-900 p-4">${inner}</section>`;
+const field = (l, v, mono) => `<div class="space-y-1"><div class="text-gray-500 text-[11px]">${l}</div><div class="h-8 flex items-center px-2 rounded-md bg-gray-800 border border-gray-700 text-gray-200 text-sm truncate ${mono ? "font-mono text-xs" : ""}">${v}</div></div>`;
+const roundPill = (r, i) => `<span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${r === "pass" ? "bg-emerald-900/40 text-emerald-400 border border-emerald-800" : "bg-red-900/40 text-red-400 border border-red-800"}">r${i + 1} ${r === "pass" ? "✓" : "✗"}</span>`;
+const trail = [
+  ["Oct 18 14:02", "stop", "Run stopped — Verify failed twice on HL-142.3", "tsc: 3 errors in SignatureBlock.tsx"],
+  ["Oct 18 13:40", "fail", "Verify r2 ✗ HL-142.3", "tsc: 3 errors"],
+  ["Oct 18 11:15", "pass", "Verify r2 ✓ HL-142.2", ""],
+  ["Oct 18 10:02", "fail", "Verify r1 ✗ HL-142.3", "lint: unused import; test: signature date blank"],
+  ["Oct 17 17:30", "fail", "Verify r1 ✗ HL-142.2", "test: contract total off by tax"],
+  ["Oct 17 12:10", "pass", "Verify r1 ✓ HL-142.1", ""],
+  ["Oct 16 09:00", "stage", "Stage entered: Build — Run started by Pedro", ""],
+  ["Oct 14 16:20", "stage", "Moved to ready — 4 Subtasks split", ""],
+  ["Oct 13 10:05", "stage", "Story created (backlog)", ""],
+];
+const kc = { stop: "text-red-400", fail: "text-red-300", pass: "text-emerald-400", stage: "text-blue-300" };
+const statusC = { done: "text-emerald-400", stopped: "text-red-400", todo: "text-gray-500" };
+const statusT = { done: "done", stopped: "in progress", todo: "todo" };
+
+document.getElementById("main").innerHTML = `
+  ${card(`${h3("Description")}<div class="text-gray-300 leading-relaxed">Brief: generate the rental contract as a PDF from the contract screen, with the customer's data, equipment list, totals with tax and a signature block. ADR-0012 (PDF engine) · spec linked.</div>`)}
+  ${card(`${h3("Subtasks")}
+    <div class="grid grid-cols-3 gap-3">${[["todo", "TO DO", "bg-gray-400"], ["stopped", "IN PROGRESS", "bg-blue-500"], ["done", "DONE", "bg-emerald-500"]].map(([st, label, dotc]) => {
+      const cards = SUB.filter(s => s.s === st);
+      return `<div class="bg-gray-950/60 rounded-lg p-2">
+        <div class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-400 tracking-wider px-1 mb-2"><span class="h-2 w-2 rounded-full ${dotc}"></span>${label} <span class="text-gray-600">${cards.length}</span></div>
+        <div class="space-y-2">${cards.map(s => `
+          <div class="bg-gray-800 rounded-lg p-3 border ${s.s === "stopped" ? "border-red-700" : "border-gray-700/50"}">
+            <div class="text-sm text-white font-medium leading-tight">${s.t}</div>
+            <div class="text-[11px] text-teal-400 mt-1.5">${s.who}</div>
+            ${s.s === "stopped" ? '<div class="mt-1.5"><span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-400 border border-red-800">stopped · 2 failed rounds</span></div>' : ""}
+            <div class="flex items-center justify-between mt-2">
+              <span class="text-[11px] font-mono text-gray-500">${s.key}</span>
+              <span class="flex gap-1">${s.rounds.map(roundPill).join("") || '<span class="text-[10px] text-gray-600">no rounds</span>'}</span>
+            </div>
+          </div>`).join("") || '<div class="text-[11px] text-gray-600 px-1">—</div>'}</div>
+      </div>`;
+    }).join("")}</div>`)}
+  ${card(`${h3("Comments")}<p class="text-xs text-gray-500 mb-3">No comments yet.</p><div class="h-16 rounded-md bg-gray-800 border border-gray-700"></div><button class="mt-2 h-8 px-3 rounded-md bg-blue-600 text-white text-xs">Comment</button>`)}
+`;
+
+document.getElementById("side").innerHTML = `
+  <section class="rounded-lg border border-red-800 bg-red-950/40 p-4">
+    <div class="text-red-300 font-medium">Run stopped in Build</div>
+    <div class="text-xs text-gray-400 mt-1">Verify failed twice on <span class="font-mono">HL-142.3</span> — tsc: 3 errors in SignatureBlock.tsx</div>
+    <div class="flex gap-2 mt-3">
+      <button class="h-7 px-3 text-xs rounded bg-blue-600 text-white">Restart Run</button>
+      <button class="h-7 px-3 text-xs rounded border border-gray-700 text-gray-300">Open failing round</button>
+    </div>
+  </section>
+  ${card(`${h3("Details")}<div class="space-y-2">
+    <div class="grid grid-cols-2 gap-2">${field("Status", "building")}${field("Priority", "High")}</div>
+    <div class="grid grid-cols-2 gap-2">${field("Assignee", "Pedro")}${field("Sprint", "—")}</div>
+    <div class="grid grid-cols-3 gap-2">${field("Points", "5")}${field("Due", "—")}${field("Labels", "contracts")}</div>
+  </div>`)}
+  ${card(`${h3("Links")}<div class="space-y-2">
+    ${field("Feature branch", "feat/hl-142-contract-pdf", true)}
+    ${field("PR", "— opens after Review")}
+    ${field("Review verdict", "— not reviewed")}
+    ${field("Release", "— not picked")}
+    ${field("Depends on", "HL-131")}
+  </div>`)}
+  ${card(`${h3("Attachments")}<p class="text-xs text-gray-500">No attachments yet.</p>`)}
+`;
+
+document.getElementById("history").innerHTML = `
+  ${card(`${h3("Review rounds")}<div class="text-xs text-gray-500">Not started — Codex reviews the whole Story once every Subtask has passed Verify. Each round will list its verdict, the reviewed commit and a link to the findings.</div>`)}
+  ${card(`${h3("Trail")}<div class="space-y-2.5">${trail.map(([t, k, x, d]) => `
+    <div class="flex gap-4 text-xs"><span class="text-gray-500 w-24 shrink-0">${t}</span>
+    <div><div class="${kc[k]}">${x}</div>${d ? `<div class="text-gray-500">${d}</div>` : ""}</div></div>`).join("")}</div>`)}
+`;
+</script>
+</body>
