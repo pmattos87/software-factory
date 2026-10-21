@@ -30,6 +30,7 @@ Resolved 2026-10-20 with Pedro.
 - **Leaving a Story out of a Release** = not merging its Feature branch. Chosen over feature flags (flag code in every Story, five stacks) and cherry-picking (diverging copies, several commits per Story).
 - **Bug Tasks** commit on the Story's Feature branch and go through integration again for re-testing, wherever the bug was found. Only a Story that passed integration is merged into a Release.
 - **A Story depending on another unreleased Story** ships with it.
+  - *Amended 2026-10-21 (phase 4, after the FB-98 Run stopped waiting for SF-31 to reach `main`):* its Feature branch is still cut from `main`, then the dependency's Feature branch (never the integration branch) is merged into it, and the dependency is recorded with a depends-on link so the Release pick warns when the two are split. The Task splitter flags dependencies; `run` and `integrate` merge them.
 - **Release** = a `release/vX.Y.Z` branch cut from `main`, into which Pedro's picked Feature branches are merged. For Client projects it is also the User testing branch (betas tagged `vX.Y.Z-beta.N`). It reaches production by a PR into `main` that Pedro approves, then a tag and GitHub Release.
 
 **Conventions.**

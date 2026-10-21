@@ -30,13 +30,15 @@ Each `ok` line is an eligible Specialist. Read each one's `description` from `.c
 
 ## 3. Ask the Task splitter
 
-Delegate to the `factory:task-splitter` agent, on opus unless `factory.json` overrides it (`agents.task-splitter.model`; see `factory:run`). Hand it the Story key, the full brief, and the eligible builders with their descriptions. It reads the repo and returns a `## Split`, `## Brief changes` and `## Open questions` block.
+Delegate to the `factory:task-splitter` agent, on opus unless `factory.json` overrides it (`agents.task-splitter.model`; see `factory:run`). Hand it the Story key, the full brief, and the eligible builders with their descriptions. It reads the repo and returns a `## Split`, `## Depends on`, `## Brief changes` and `## Open questions` block.
 
 Check its result before showing it: every Subtask names an eligible builder, has points, a risk line and at least one "done when" item. Send it back with what is missing rather than patching it yourself.
 
 ## 4. Pedro approves
 
-Show the split as a table (order, title, agent, points, risk), then each Subtask's slice and "done when", then the brief changes and the open questions.
+Show the split as a table (order, title, agent, points, risk), then each Subtask's slice and "done when", then the dependencies, the brief changes and the open questions.
+
+A dependency means the Run will merge that Story's Feature branch into this one, and the two will have to be released together. Say so when you show it: Pedro may prefer to wait until the other Story is in production.
 
 Pedro edits it: reorders, merges, reassigns, rewords, answers the questions. Apply the edits and show the result again. **Write nothing until Pedro approves the split**, and nothing while an open question is unanswered: an answer usually changes the brief, and sometimes the split.
 
@@ -62,6 +64,7 @@ In this order, so the plan can name the keys:
    - done when:
      - <observable fact>
    ```
+3. `story_link` the Story to each approved dependency (`depends_on` = its key). The Run reads the links from `story_show`, and the Release pick warns when the two are split.
 
 ## 6. Hand over
 

@@ -54,6 +54,14 @@ The working tree must be clean before a Run starts: `git status --porcelain` emp
 - **The Story records a branch**: switch to it.
 - **It doesn't**: cut it from production, `<type>/<KEY>-<n>-<slug>` (the conventional-commit type of the Story's work, its key, a short slug of its title): `git fetch origin`, `git switch -c <branch> origin/<production>`, then `story_set_branch`. Never from the integration branch.
 
+**Then bring in its dependencies**: for each Story in the Story's `depends_on` that isn't `done` (`story_show` it), merge its recorded Feature branch, never the integration branch:
+
+```
+git -c user.name=pmattos-pr-review-agent -c user.email=345377693+pmattos-pr-review-agent@users.noreply.github.com merge --no-ff origin/<its branch> -m "chore: merge <its branch> (depends on <ITS-KEY>)"
+```
+
+Do this on a resumed Run too: a dependency that gained commits since brings them in, and one already merged is a no-op. A `done` dependency is already in production; skip it. Stop the Run (`run_stop` on a Story already in `building`, otherwise just stop and report) when a dependency has no Feature branch yet (it has to be built first), is `canceled`, or its merge conflicts: `git merge --abort` and report the files.
+
 On a new Run, `story_move` the Story to `building` now.
 
 ## 4. Build each Subtask
