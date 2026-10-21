@@ -22,6 +22,8 @@ One Story has one Feature branch, `<type>/<KEY>-<n>-<slug>`: the conventional-co
 
 A Feature branch is **never** cut from the integration branch and never has the integration branch merged into it. The integration branch holds other Stories that may never be released, and they would ride along into this Story's Release.
 
+**Dependencies** are the one exception to "only production": for each Story in the Story's `depends_on` that isn't `done`, merge its recorded Feature branch (`git merge --no-ff origin/<its branch>`, committed as the machine account in step 3, subject `chore: merge <its branch> (depends on <ITS-KEY>)`). It carries exactly that Story, and the link makes the Release pick warn if the two are split. A dependency with no Feature branch yet, `canceled`, or whose merge conflicts: stop and report (`git merge --abort` on a conflict).
+
 ## 3. Commit
 
 Group the changes into logical commits, never one mega-commit. Each subject is a conventional commit, `type(scope): description`, in the imperative, with a body when the why isn't obvious. No Story key in commit subjects: it lives in the branch name and the PR title. End each message with the attribution lines the session asks for.
