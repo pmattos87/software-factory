@@ -87,6 +87,10 @@ test('secret scan: a staged secret blocks the commit', () => {
   assert.ok(r.blocked, r.stderr);
   assert.match(r.stderr, /github-pat in config\.js/);
   assert.ok(!r.stderr.includes('ghp_'), 'the secret itself is redacted');
+  assert.match(r.stderr, /fingerprint config\.js:github-pat:1\]/);
+  fs.writeFileSync(path.join(dir, '.gitleaksignore'), 'config.js:github-pat:1\n');
+  assert.ok(!runHook('secret-scan', 'git add config.js && git commit -m "feat: x"', dir).blocked, '.gitleaksignore is honored');
+  fs.rmSync(path.join(dir, '.gitleaksignore'));
   git(dir, 'add', 'config.js');
   assert.ok(runHook('secret-scan', 'git commit -m "feat: x"', dir).blocked);
 });

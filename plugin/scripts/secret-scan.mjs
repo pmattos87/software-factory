@@ -59,7 +59,16 @@ function scanUntracked(root) {
       fs.mkdirSync(path.dirname(path.join(tmp, f)), { recursive: true });
       fs.copyFileSync(path.join(root, f), path.join(tmp, f));
     }
-    return scan(root, ['dir', tmp]).map((x) => ({ ...x, File: path.relative(tmp, x.File) }));
+    // gitleaks saw the copies, so map findings back to repo paths and apply
+    // .gitleaksignore ourselves: its fingerprints name repo paths, not the copies.
+    const ignorePath = path.join(root, '.gitleaksignore');
+    const ignored = fs.existsSync(ignorePath) ? fs.readFileSync(ignorePath, 'utf8').split(/\r?\n/).map((l) => l.trim()) : [];
+    return scan(root, ['dir', tmp])
+      .map((x) => {
+        const File = path.relative(tmp, x.File).split(path.sep).join('/');
+        return { ...x, File, Fingerprint: `${File}:${x.RuleID}:${x.StartLine}` };
+      })
+      .filter((x) => !ignored.includes(x.Fingerprint));
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
