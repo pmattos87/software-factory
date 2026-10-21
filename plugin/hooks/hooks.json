@@ -1,5 +1,5 @@
 {
-  "description": "Factory guardrails: secret scan, protected branches, PR gate",
+  "description": "Factory guardrails: secret scan, protected branches, PR gate, merge guard",
   "hooks": {
     "PreToolUse": [
       {
@@ -19,6 +19,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/pr-gate.mjs\"",
             "timeout": 3600
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/merge-guard.mjs\"",
+            "timeout": 30
           }
         ]
       }

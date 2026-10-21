@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { splitCommands, invocations } from '../plugin/scripts/lib/shell.mjs';
 import { parsePush } from '../plugin/scripts/lib/push.mjs';
-import { checkPullRequest, parseFeatureBranch } from '../plugin/scripts/lib/conventions.mjs';
+import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scripts/lib/conventions.mjs';
+import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -51,4 +52,22 @@ test('convention violations are reported', () => {
 test('a Release branch goes only into production', () => {
   assert.deepEqual(pr({ head: 'release/v1.5.0', base: 'main', title: 'Release v1.5.0', subjects: ['wip'] }), []);
   assert.equal(pr({ head: 'release/v1.5.0', base: 'develop' }).length, 1);
+});
+
+test('parseMerge reads the PR, repo and flags', () => {
+  assert.deepEqual(parseMerge(['https://github.com/o/r/pull/7', '--merge']), { pr: 'https://github.com/o/r/pull/7', repo: null, flags: ['merge'] });
+  assert.deepEqual(parseMerge(['7', '-sd', '-R', 'o/r', '--subject', 'x y']), { pr: '7', repo: 'o/r', flags: ['squash', 'delete-branch'] });
+  assert.deepEqual(parseMerge(['--body=a', '--auto', '-m']), { pr: null, repo: null, flags: ['auto', 'merge'] });
+});
+
+test('a merge uses a merge commit, keeps the branch and stays out of production', () => {
+  const merge = (flags, base = 'develop') => checkMerge({ branches, flags, base });
+  assert.deepEqual(merge(['merge']), []);
+  assert.deepEqual(merge(['merge', 'auto'], 'release/v1.2.0'), []);
+  assert.equal(merge(['merge'], 'main').length, 1);
+  assert.equal(merge(['squash']).length, 1);
+  assert.equal(merge(['rebase']).length, 1);
+  assert.equal(merge([]).length, 1);
+  assert.equal(merge(['merge', 'delete-branch']).length, 1);
+  assert.equal(merge(['merge', 'admin']).length, 1);
 });

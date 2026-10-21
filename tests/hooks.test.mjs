@@ -135,6 +135,13 @@ test('PR gate: conventions and gates must pass', () => {
   git(dir, 'checkout', '-q', 'main');
 });
 
+test('merge guard: squash, rebase, branch deletion and --admin are blocked', () => {
+  for (const cmd of ['gh pr merge 7 --squash', 'gh pr merge 7 -r', 'gh pr merge 7', 'gh pr merge 7 --merge --delete-branch', 'GH_TOKEN=$(gh auth token -u bot) gh pr merge 7 --merge --admin']) {
+    assert.match(runHook('merge-guard', cmd, dir).stderr, /merge-guard/, cmd);
+  }
+  assert.ok(!runHook('merge-guard', 'gh pr list', dir).blocked);
+});
+
 test('PR gate: a project without config is refused', () => {
   const bare = repo(null);
   assert.match(runHook('pr-gate', 'gh pr create --base develop --title x', bare).stderr, /no \.claude\/factory\.json/);
