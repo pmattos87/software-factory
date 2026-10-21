@@ -25,12 +25,12 @@ Then check the plan: every open Subtask has a `### <KEY> <title>` entry under `#
 ## 2. Check the builders and the tiers
 
 ```
-node "<this skill's base directory>/../../scripts/check-specialists.mjs" <every Specialist the open Subtasks name>
+node "<this skill's base directory>/../../scripts/check-specialists.mjs" --run <every Specialist the open Subtasks name>
 ```
 
 The base directory is the one shown when this skill loaded; the script ships in the same plugin. Run it from the project's repo root.
 
-Leave `implementer` out of the names: it is a Role agent. Any `FAIL` line stops the Run before it starts: a Specialist that breaks the contract can't be handed work. The same command also checks the `agents` tier overrides in `factory.json`; with no Specialists named it checks only those.
+Leave `implementer` out of the names: it is a Role agent. Any `FAIL` line stops the Run before it starts: a Specialist that breaks the contract can't be handed work. The same command also checks the `agents` tier overrides in `factory.json`; with no Specialists named (every Subtask goes to `implementer`) it checks only those. Never drop `--run`: without it the script checks every agent in the project, and a Specialist this Run doesn't use would stop it.
 
 **Each agent's model** is its default tier, unless `factory.json` overrides it:
 

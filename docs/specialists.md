@@ -45,7 +45,7 @@ A Specialist doesn't repeat the Run's rules. When the Orchestrator hands it a Su
 ## Checking
 
 ```
-node <factory>/plugin/scripts/check-specialists.mjs [name...]
+node <factory>/plugin/scripts/check-specialists.mjs [--run] [name...]
 ```
 
-Run from the project's repo root, it checks every agent in `.claude/agents/`, or only the named ones, and exits 1 when one fails. The Task splitter offers only Specialists that pass, and a Run checks the Specialists its Subtasks name before it starts. An agent that doesn't follow the contract stays usable in hand-driven work; it just isn't handed Subtasks in a Run.
+Run from the project's repo root, it checks every agent in `.claude/agents/` (what `split` offers), or with `--run` only the named ones, possibly none (what a Run hands work to). Both also check the `agents` tier overrides in `factory.json`. It exits 1 when anything fails. The Task splitter offers only Specialists that pass, and a Run checks the Specialists its Subtasks name before it starts. An agent that doesn't follow the contract stays usable in hand-driven work; it just isn't handed Subtasks in a Run.
