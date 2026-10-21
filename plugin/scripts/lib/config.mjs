@@ -19,6 +19,7 @@ export function loadConfig(root) {
     gates: raw.gates ?? [],
     build: raw.build ?? [],
     ci: raw.ci ?? {},
+    agents: raw.agents ?? {},
   };
 }
 

@@ -5,6 +5,7 @@ import { splitCommands, invocations } from '../plugin/scripts/lib/shell.mjs';
 import { parsePush } from '../plugin/scripts/lib/push.mjs';
 import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scripts/lib/conventions.mjs';
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
+import { checkSpecialist, checkTierOverrides } from '../plugin/scripts/lib/specialists.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -70,4 +71,28 @@ test('a merge uses a merge commit, keeps the branch and stays out of production'
   assert.equal(merge([]).length, 1);
   assert.equal(merge(['merge', 'delete-branch']).length, 1);
   assert.equal(merge(['merge', 'admin']).length, 1);
+});
+
+const specialist = (fm, body = '## Scope\nx\n\n## Definition of done\n- y\n') => checkSpecialist('/p/.claude/agents/board-ui.md', `---\n${fm}\n---\n${body}`);
+
+test('a Specialist that follows the contract passes', () => {
+  assert.deepEqual(specialist('name: board-ui\ndescription: Builds the board\nmodel: sonnet'), []);
+  assert.deepEqual(specialist('name: "board-ui"\r\ndescription: x\r\nmodel: opus', '## Scope\r\n## Definition of Done\r\n'), []);
+});
+
+test('Specialist contract violations are reported', () => {
+  assert.equal(specialist('name: other\ndescription: x\nmodel: sonnet').length, 1);
+  assert.equal(specialist('name: board-ui\nmodel: sonnet').length, 1);
+  assert.equal(specialist('name: board-ui\ndescription: x\nmodel: claude-sonnet-4-6').length, 1);
+  assert.equal(specialist('name: board-ui\ndescription: x').length, 1);
+  assert.equal(specialist('name: board-ui\ndescription: x\nmodel: sonnet', '## Scope\n**Definition of Done:** y').length, 1);
+  assert.deepEqual(checkSpecialist('qa.md', 'no frontmatter'), ['no frontmatter block']);
+  assert.equal(checkSpecialist('/a/qa.md', '---\nname: qa\ndescription: x\nmodel: opus\n---\n## Scope\n## Definition of done\n').length, 1);
+});
+
+test('tier overrides name an agent, an alias and a reason', () => {
+  assert.deepEqual(checkTierOverrides({ implementer: { model: 'opus', reason: 'stops' }, 'board-ui': { model: 'haiku', reason: 'x' } }, ['board-ui']), []);
+  assert.deepEqual(checkTierOverrides({ implementer: { model: 'claude-opus-5-5', reason: 'x' } })[0].problems.length, 1);
+  assert.deepEqual(checkTierOverrides({ qa: { model: 'sonnet' } })[0].problems, ['a reason is required']);
+  assert.deepEqual(checkTierOverrides({ ghost: { model: 'opus', reason: 'x' } })[0].problems, ['no such agent']);
 });
