@@ -1,0 +1,110 @@
+# The Factory's PR checks (docs/spec/issues/10-pr-checks.md), called by every
+# Consumer project's own workflow:
+#
+#   on:
+#     pull_request:
+#       branches: [develop, main, 'release/**']
+#   jobs:
+#     factory:
+#       uses: pmattos87/software-factory/.github/workflows/pr-checks.yml@main
+#
+# What runs comes from the project's .claude/factory.json and the PR's target branch.
+
+name: Factory PR checks
+
+on:
+  workflow_call:
+    inputs:
+      factory-ref:
+        description: Ref of the Factory repo whose scripts run the checks
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-pr-checks-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  BASE_REF: ${{ github.event.pull_request.base.ref }}
+  HEAD_REF: ${{ github.event.pull_request.head.ref }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  PR_TITLE: ${{ github.event.pull_request.title }}
+  FACTORY: ${{ github.workspace }}/.factory/plugin/scripts
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      kinds: ${{ steps.plan.outputs.kinds }}
+      secret-scan: ${{ steps.plan.outputs.secret-scan }}
+      conventions: ${{ steps.plan.outputs.conventions }}
+      node: ${{ steps.plan.outputs.node }}
+      rust: ${{ steps.plan.outputs.rust }}
+      rust-workspace: ${{ steps.plan.outputs.rust-workspace }}
+      apt: ${{ steps.plan.outputs.apt }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.HEAD_SHA }}', fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts }
+      - id: plan
+        run: node "$FACTORY/ci.mjs" plan
+
+  conventions:
+    needs: plan
+    if: needs.plan.outputs.conventions == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.HEAD_SHA }}', fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts }
+      - run: node "$FACTORY/ci.mjs" conventions
+
+  secret-scan:
+    needs: plan
+    if: needs.plan.outputs.secret-scan == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.HEAD_SHA }}', fetch-depth: 0 }
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+      - name: Scan the PR's commits
+        run: gitleaks git --no-banner --redact --verbose --log-opts="$BASE_SHA..$HEAD_SHA"
+
+  run:
+    name: ${{ matrix.kind }}
+    needs: plan
+    if: needs.plan.outputs.kinds != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: ${{ fromJSON(needs.plan.outputs.kinds) }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ env.HEAD_SHA }}' }
+      - uses: actions/checkout@v4
+        with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts }
+      - name: System packages
+        if: needs.plan.outputs.apt != ''
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ${{ needs.plan.outputs.apt }}
+      - uses: actions/setup-node@v4
+        if: needs.plan.outputs.node != ''
+        with:
+          node-version: ${{ needs.plan.outputs.node }}
+          cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
+      - uses: dtolnay/rust-toolchain@master
+        if: needs.plan.outputs.rust != ''
+        with: { toolchain: '${{ needs.plan.outputs.rust }}' }
+      - uses: Swatinem/rust-cache@v2
+        if: needs.plan.outputs.rust != ''
+        with: { workspaces: '${{ needs.plan.outputs.rust-workspace }}' }
+      - run: node "$FACTORY/ci.mjs" run ${{ matrix.kind }}
