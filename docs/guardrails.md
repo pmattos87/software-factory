@@ -42,6 +42,9 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
     "rustWorkspace": "src-tauri",
     "apt": ["libwebkit2gtk-4.1-dev"],
     "install": ["npm ci"]
+  },
+  "agents": {
+    "implementer": { "model": "opus", "reason": "Runs kept hitting the 2-round stop" }
   }
 }
 ```
@@ -56,6 +59,7 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `ci.rustWorkspace` | Where the Cargo workspace is, for the Rust cache. |
 | `ci.apt` | Ubuntu packages Actions installs before the gates and build. |
 | `ci.install` | Commands Actions runs before the gates and build (dependency install, CI-only prep). |
+| `agents` | Optional tier overrides for a Role agent or a Specialist: `model` as an alias (`opus`, `sonnet`, `haiku`) and the `reason`, both required. Used by `split` and `run`; checked by `check-specialists.mjs` ([Specialists](specialists.md)). |
 
 ## Actions
 
