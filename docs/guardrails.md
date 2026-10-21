@@ -1,6 +1,6 @@
 # Guardrails
 
-What the Factory enforces mechanically in a Consumer project, and how a project sets it up. Why these rules and not others: [Hooks](spec/issues/04-hooks.md) and [PR checks](spec/issues/10-pr-checks.md).
+What the Factory enforces mechanically in a Consumer project, and how a project sets it up. Why these rules and not others: [Hooks](spec/issues/04-hooks.md) and [PR checks](spec/issues/10-pr-checks.md). The skills that work inside them: [Workflow](workflow.md).
 
 ## Hooks
 
@@ -11,6 +11,7 @@ Shipped in [plugin/hooks/hooks.json](../plugin/hooks/hooks.json). They run befor
 | [Secret scan](../plugin/scripts/secret-scan.mjs) | A `git commit` whose changes carry a secret (staged changes; plus unstaged and untracked files when the same command runs `git add`, or the commit uses `-a` or paths), and a `git push` whose outgoing commits carry one. Uses [gitleaks](https://github.com/gitleaks/gitleaks); blocks if gitleaks is missing. |
 | [Protected branches](../plugin/scripts/protected-branches.mjs) | A `git commit` while on the integration or production branch, and a `git push` that targets either one (by name, `HEAD:<branch>`, a bare push from them, `--all`/`--mirror`, or a delete). |
 | [PR gate](../plugin/scripts/pr-gate.mjs) | A `gh pr create` unless the working tree is clean, the PR follows the conventions below, and every gate command passes. Requiring a passed Review comes with phase 5. |
+| [Merge guard](../plugin/scripts/merge-guard.mjs) | A `gh pr merge` into the production branch (only Pedro merges there), or one without `--merge`, with `--squash`/`--rebase`, `--delete-branch` or `--admin`. Reads the PR's target branch with `gh pr view`. |
 
 False positive from the secret scan: put a `gitleaks:allow` comment on the line, or add its fingerprint (shown in the block message) to `.gitleaksignore`. A project can tune rules with its own `.gitleaks.toml`.
 

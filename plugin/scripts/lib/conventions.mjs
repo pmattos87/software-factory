@@ -49,3 +49,24 @@ export function checkPullRequest({ boardKey, branches, head, base, title, subjec
   }
   return problems;
 }
+
+// Returns the list of reasons a `gh pr merge` may not run; empty when it may.
+// `flags` are the merge's flag names (long form); `base` is the PR's target branch.
+export function checkMerge({ branches, flags, base }) {
+  const problems = [];
+  if (base === branches.production) {
+    problems.push(`Only Pedro merges into ${branches.production}: that merge is the Promote gate.`);
+  }
+  if (flags.includes('squash') || flags.includes('rebase')) {
+    problems.push('Merge commits only: squash and rebase are off, since Feature branches live on after their first merge.');
+  } else if (!flags.includes('merge')) {
+    problems.push('Pass --merge: merge commits are the only merge method.');
+  }
+  if (flags.includes('delete-branch')) {
+    problems.push('Keep the branch: a Feature branch is deleted only when its Release reaches production.');
+  }
+  if (flags.includes('admin')) {
+    problems.push('--admin bypasses the PR checks; wait for them to pass instead.');
+  }
+  return problems;
+}
