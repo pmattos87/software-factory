@@ -1,0 +1,75 @@
+// The PR checks workflow's logic (.github/workflows/pr-checks.yml), run from the
+// Consumer project's checkout:
+//   node ci.mjs plan               which checks this PR gets, written to $GITHUB_OUTPUT
+//   node ci.mjs run gates|build    runs the project's commands of that kind
+//   node ci.mjs conventions        branch name, PR title and commit subjects
+// Reads BASE_REF, HEAD_REF, BASE_SHA, HEAD_SHA and PR_TITLE from the environment.
+
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { git } from './lib/git.mjs';
+import { loadConfig, CONFIG_PATH } from './lib/config.mjs';
+import { checkPullRequest } from './lib/conventions.mjs';
+
+const { BASE_REF, HEAD_REF, BASE_SHA, HEAD_SHA, PR_TITLE, GITHUB_OUTPUT } = process.env;
+const root = process.cwd();
+const config = loadConfig(root);
+if (!config?.boardKey) fail(`${CONFIG_PATH} with a boardKey is missing; the Factory can't tell which checks to run.`);
+
+const DOCS = /(^docs\/|\.md$|^LICENSE)/;
+
+switch (process.argv[2]) {
+  case 'plan': {
+    // Which checks run into which branch: docs/spec/issues/10-pr-checks.md
+    const intoProduction = BASE_REF === config.branches.production;
+    const intoRelease = BASE_REF.startsWith('release/');
+    const changed = (git(root, 'diff', '--name-only', `${BASE_SHA}...${HEAD_SHA}`) ?? '').split('\n').filter(Boolean);
+    const docsOnly = changed.length > 0 && changed.every((f) => DOCS.test(f));
+
+    const kinds = [];
+    if (config.gates.length && !docsOnly) kinds.push('gates');
+    if (config.build.length && (intoProduction || intoRelease)) kinds.push('build');
+    output({
+      kinds: JSON.stringify(kinds),
+      'secret-scan': String(!intoProduction),
+      conventions: String(!intoProduction),
+      node: config.ci.node ?? '',
+      rust: config.ci.rust ?? '',
+      'rust-workspace': config.ci.rustWorkspace ?? '.',
+      apt: (config.ci.apt ?? []).join(' '),
+    });
+    console.log(`Into ${BASE_REF}: ${kinds.join(', ') || 'no commands'}${docsOnly ? ' (docs-only diff, gates skipped)' : ''}.`);
+    break;
+  }
+  case 'run': {
+    const kind = process.argv[3];
+    for (const cmd of [...(config.ci.install ?? []), ...config[kind]]) {
+      console.log(`::group::${cmd}`);
+      const r = spawnSync(cmd, { cwd: root, shell: true, stdio: 'inherit' });
+      console.log('::endgroup::');
+      if (r.status !== 0) fail(`\`${cmd}\` failed (exit ${r.status}).`);
+    }
+    break;
+  }
+  case 'conventions': {
+    const subjects = (git(root, 'log', '--no-merges', '--format=%s', `${BASE_SHA}..${HEAD_SHA}`) ?? '').split('\n').filter(Boolean);
+    const problems = checkPullRequest({ ...config, head: HEAD_REF, base: BASE_REF, title: PR_TITLE, subjects });
+    for (const p of problems) console.log(`::error::${p}`);
+    if (problems.length) process.exit(1);
+    console.log('Conventions followed.');
+    break;
+  }
+  default:
+    fail(`Unknown command ${process.argv[2]}.`);
+}
+
+function output(values) {
+  const lines = Object.entries(values).map(([k, v]) => `${k}=${v}`);
+  if (GITHUB_OUTPUT) fs.appendFileSync(GITHUB_OUTPUT, lines.join('\n') + '\n');
+  else console.log(lines.join('\n'));
+}
+
+function fail(message) {
+  console.log(`::error::${message}`);
+  process.exit(1);
+}

@@ -1,0 +1,138 @@
+// Each hook against a planted violation in a throwaway repo, and the same
+// action done right, which must pass.
+
+import { test, before } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+
+const SCRIPTS = path.resolve(import.meta.dirname, '../plugin/scripts');
+
+function runHook(hook, command, cwd) {
+  const r = spawnSync('node', [path.join(SCRIPTS, `${hook}.mjs`)], {
+    input: JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd }),
+    encoding: 'utf8',
+  });
+  return { blocked: r.status === 2, status: r.status, stderr: r.stderr };
+}
+
+const git = (dir, ...args) => {
+  const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+};
+
+function repo(config) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-test-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  if (config) {
+    fs.mkdirSync(path.join(dir, '.claude'));
+    fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify(config));
+  }
+  fs.writeFileSync(path.join(dir, 'README.md'), 'hi\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'chore: init');
+  git(dir, 'branch', 'develop');
+  return dir;
+}
+
+// Built at runtime so this file never holds a literal token.
+const fakeToken = () => 'ghp_' + crypto.randomBytes(27).toString('base64').replace(/[^a-zA-Z0-9]/g, 'x').slice(0, 36);
+
+let dir;
+before(() => {
+  dir = repo({
+    boardKey: 'FB',
+    branches: { integration: 'develop', production: 'main' },
+    gates: ['node -e "process.exit(require(\'fs\').existsSync(\'BROKEN\') ? 1 : 0)"'],
+  });
+});
+
+test('protected branches: commit on main or develop is blocked', () => {
+  assert.ok(runHook('protected-branches', 'git commit -m "feat: x"', dir).blocked);
+  assert.ok(runHook('protected-branches', 'git checkout develop && git commit -m "feat: x"', dir).blocked);
+  assert.ok(!runHook('protected-branches', 'git checkout -b feat/FB-1-x && git commit -m "feat: x"', dir).blocked);
+  assert.ok(!runHook('protected-branches', 'git status', dir).blocked);
+});
+
+test('protected branches: pushes to main or develop are blocked', () => {
+  git(dir, 'checkout', '-q', '-b', 'feat/FB-1-push');
+  for (const cmd of ['git push origin main', 'git push origin HEAD:develop', 'git push --all', 'git push origin :main', `git -C "${dir}" push origin main`]) {
+    assert.ok(runHook('protected-branches', cmd, dir).blocked, cmd);
+  }
+  assert.ok(!runHook('protected-branches', 'git push -u origin feat/FB-1-push', dir).blocked);
+  git(dir, 'checkout', '-q', 'main');
+  assert.ok(runHook('protected-branches', 'git push', dir).blocked, 'bare push from main');
+  git(dir, 'branch', '-q', '-D', 'feat/FB-1-push');
+});
+
+test('protected branches: names come from the project config', () => {
+  const other = repo({ boardKey: 'XX', branches: { integration: 'dev', production: 'main' } });
+  git(other, 'checkout', '-q', '-b', 'dev');
+  assert.ok(runHook('protected-branches', 'git commit -m "feat: x"', other).blocked);
+  git(other, 'checkout', '-q', 'develop');
+  assert.ok(!runHook('protected-branches', 'git commit -m "feat: x"', other).blocked);
+});
+
+test('secret scan: a staged secret blocks the commit', () => {
+  git(dir, 'checkout', '-q', '-b', 'feat/FB-2-secret');
+  fs.writeFileSync(path.join(dir, 'config.js'), `export const token = "${fakeToken()}";\n`);
+  assert.ok(!runHook('secret-scan', 'git commit -m "feat: x"', dir).blocked, 'nothing staged yet');
+  const r = runHook('secret-scan', 'git add config.js && git commit -m "feat: x"', dir);
+  assert.ok(r.blocked, r.stderr);
+  assert.match(r.stderr, /github-pat in config\.js/);
+  assert.ok(!r.stderr.includes('ghp_'), 'the secret itself is redacted');
+  git(dir, 'add', 'config.js');
+  assert.ok(runHook('secret-scan', 'git commit -m "feat: x"', dir).blocked);
+});
+
+test('secret scan: a committed secret blocks the push', () => {
+  git(dir, 'commit', '-q', '-m', 'feat: leak', '--no-verify');
+  assert.ok(runHook('secret-scan', 'git push -u origin feat/FB-2-secret', dir).blocked);
+  git(dir, 'reset', '-q', '--hard', 'main');
+  assert.ok(!runHook('secret-scan', 'git push -u origin feat/FB-2-secret', dir).blocked);
+  fs.writeFileSync(path.join(dir, 'clean.js'), 'export const x = 1;\n');
+  assert.ok(!runHook('secret-scan', 'git add clean.js && git commit -m "feat: x"', dir).blocked);
+  fs.rmSync(path.join(dir, 'clean.js'));
+  git(dir, 'checkout', '-q', 'main');
+  git(dir, 'branch', '-q', '-D', 'feat/FB-2-secret');
+});
+
+test('PR gate: conventions and gates must pass', () => {
+  const create = (title, base = 'develop') => runHook('pr-gate', `gh pr create --base ${base} --title "${title}" --body x`, dir);
+
+  git(dir, 'checkout', '-q', '-b', 'feat/FB-7-gate');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+  git(dir, 'add', 'a.txt');
+  git(dir, 'commit', '-q', '-m', 'feat(a): add a');
+  assert.ok(!create('feat: add a (FB-7)').blocked, 'compliant PR passes');
+
+  assert.match(create('feat: add a').stderr, /Story key FB-7/);
+  assert.match(create('feat: add a (FB-7)', 'main').stderr, /PR'd into develop/);
+
+  fs.writeFileSync(path.join(dir, 'BROKEN'), '');
+  git(dir, 'add', 'BROKEN');
+  git(dir, 'commit', '-q', '-m', 'oops');
+  assert.match(create('feat: add a (FB-7)').stderr, /isn't a conventional commit/);
+  git(dir, 'commit', '-q', '--amend', '-m', 'test: break the gate');
+  assert.match(create('feat: add a (FB-7)').stderr, /Gate failed/);
+
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'changed\n');
+  assert.match(create('feat: add a (FB-7)').stderr, /uncommitted changes/);
+  git(dir, 'checkout', '-q', '--', 'a.txt');
+
+  git(dir, 'checkout', '-q', '-b', 'thing');
+  assert.match(create('feat: add a (FB-7)').stderr, /doesn't follow/);
+  git(dir, 'checkout', '-q', 'main');
+});
+
+test('PR gate: a project without config is refused', () => {
+  const bare = repo(null);
+  assert.match(runHook('pr-gate', 'gh pr create --base develop --title x', bare).stderr, /no \.claude\/factory\.json/);
+  assert.ok(!runHook('pr-gate', 'gh pr list', bare).blocked);
+});
