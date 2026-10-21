@@ -25,8 +25,10 @@ Then check the plan: every open Subtask has a `### <KEY> <title>` entry under `#
 ## 2. Check the builders and the tiers
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/check-specialists.mjs" <every Specialist the open Subtasks name>
+node "<this skill's base directory>/../../scripts/check-specialists.mjs" <every Specialist the open Subtasks name>
 ```
+
+The base directory is the one shown when this skill loaded; the script ships in the same plugin. Run it from the project's repo root.
 
 Leave `implementer` out of the names: it is a Role agent. Any `FAIL` line stops the Run before it starts: a Specialist that breaks the contract can't be handed work. The same command also checks the `agents` tier overrides in `factory.json`; with no Specialists named it checks only those.
 

@@ -21,8 +21,10 @@ Board writes go through the `factory:story-status` skill's interface (the `flowb
 The builders a Subtask may name are `implementer` plus the project's Specialists that follow the Specialist contract (`docs/specialists.md` in the Factory repo: frontmatter `name`, `description`, `model` as an alias, and `## Scope` and `## Definition of done` sections):
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/check-specialists.mjs"
+node "<this skill's base directory>/../../scripts/check-specialists.mjs"
 ```
+
+The base directory is the one shown when this skill loaded; the script ships in the same plugin. Run it from the project's repo root.
 
 Each `ok` line is an eligible Specialist. Read each one's `description` from `.claude/agents/<name>.md`. Mention the failing ones to Pedro in one line (they can't be handed Subtasks until they follow the contract), but don't stop for them.
 
