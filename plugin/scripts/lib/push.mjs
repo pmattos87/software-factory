@@ -5,6 +5,7 @@ const OPTS_WITH_VALUE = ['-o', '--push-option', '--repo', '--receive-pack', '--e
 export function parsePush(args) {
   const positional = [];
   let all = false;
+  let tags = false;
   let deleting = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -13,12 +14,13 @@ export function parsePush(args) {
       break;
     }
     if (a === '--all' || a === '--mirror' || a === '--branches') all = true;
+    else if (a === '--tags') tags = true;
     else if (a === '-d' || a === '--delete') deleting = true;
     else if (OPTS_WITH_VALUE.includes(a)) i++;
     else if (!a.startsWith('-')) positional.push(a);
   }
   const [remote, ...refspecs] = positional;
-  return { remote, all, refspecs: refspecs.map((r) => parseRefspec(r, deleting)) };
+  return { remote, all, tags, refspecs: refspecs.map((r) => parseRefspec(r, deleting)) };
 }
 
 // `[+]<src>[:<dst>]` -> { src, dst } with refs/heads/ stripped; src null on a delete.
