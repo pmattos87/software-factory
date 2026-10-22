@@ -71,7 +71,7 @@ Never `--squash`, `--rebase` or `--delete-branch`: the Feature branch lives on u
 ## Not here yet
 
 - **Review** (phase 5): Codex's Review of the whole Story diff will come before step 4, and the PR gate will require it.
-- **Release and Production PRs** belong to the release-promotion skill, never to this one.
+- **Release and Production PRs** belong to `factory:promote`, never to this one.
 
 ## Guardrails
 
