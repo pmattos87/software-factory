@@ -93,6 +93,8 @@ Leave out an empty section, except Blocking on a fail. Then `review_record` with
 
 1. `subtask_create` with `bug: true`, titled `Review round 1 findings`, its description the blocking findings in full plus a link to the comment.
 2. Build and Verify it the way `factory:run` step 4 does for any Subtask: handoff, build, Verify (its own 2 rounds), commit. The builder is the agent that built the code the findings point at; when they span several, `implementer`. The handoff tells the builder to answer **every** finding in its `notes`: `B1: <what changed>`, or `B1: no change, because <reason>`.
+
+   A finding about the Orchestrator's own work (a commit message, how changes were split into commits) is the one the Orchestrator fixes itself: record the handoff as `orchestrator`, reword or regroup the unpushed commits without changing their tree, and write the answer yourself. Anything that changes a file still goes to a builder. Never rewrite pushed commits.
 3. Back to step 1 for round 2, with those answers as the builders' response.
 
 If the bug Subtask's Verify fails twice, the Run stops there, as with any Subtask.

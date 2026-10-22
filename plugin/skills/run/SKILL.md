@@ -85,11 +85,11 @@ A round is one build plus one Verify. Rounds count from 1 for each Subtask, and 
 git -c user.name=pmattos-pr-review-agent -c user.email=345377693+pmattos-pr-review-agent@users.noreply.github.com commit ...
 ```
 
-One commit per Subtask, a conventional subject (`type(scope): description`, imperative, no Story key) with a body naming the Subtask key, and the attribution lines the session asks for. The secret-scan hook checks it; a block stops the Run (`run_stop` with the finding), since removing a secret is a change to the work.
+One commit per Subtask, a conventional subject (`type(scope): description`, imperative, no Story key, following any prefix rules in the project's `CLAUDE.md`) with a body naming the Subtask key, and the attribution lines the session asks for. The secret-scan hook checks it; a block stops the Run (`run_stop` with the finding), since removing a secret is a change to the work.
 
 ## 5. Docs
 
-After the last Subtask passes, delegate once to `factory:docs` with the Story key, the brief and the Story's diff against production. Commit what it changed as one `docs:` commit, the same way. When it changed nothing, say so and go on. Open questions it reports go in your final report, not into the docs.
+After the last Subtask passes, delegate once to `factory:docs` with the Story key, the brief and the Story's diff against production. Commit what it changed as one commit, the same way, with the prefix the project's `CLAUDE.md` gives for docs changes (`docs:` when it says nothing). When it changed nothing, say so and go on. Open questions it reports go in your final report, not into the docs.
 
 ## 6. Review
 
