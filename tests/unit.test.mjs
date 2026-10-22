@@ -132,7 +132,12 @@ test('release settings are checked against the project files', () => {
   assert.match(check({ versionFiles: ['package.json', 'Cargo.toml'] })[0], /disagree: package.json 1.5.1, Cargo.toml 1.4.0/);
 
   assert.equal(check({ versionFiles: ['package.json'] }, { client: true }).length, 3);
-  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { client: 'Eduardo & Luli', language: 'pt-BR', stagingUrl: 'https://x' } }, { client: true }), []);
+  const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
+  assert.deepEqual(check({ versionFiles: ['package.json'], notes }, { client: true }), []);
+  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), ["release.notes.guide docs/release-notes.md doesn't exist"]);
+  fs.mkdirSync(path.join(root, 'docs'));
+  fs.writeFileSync(path.join(root, 'docs/release-notes.md'), '# Deck style\n');
+  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), []);
 });
 
 test('the next version follows the commit types', () => {

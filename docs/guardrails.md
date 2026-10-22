@@ -70,7 +70,7 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `release.versionFiles` | Files that carry the project's version, all bumped together when a Release is cut: JSON files with a top-level `version` (`package.json`, `package-lock.json`, `tauri.conf.json`, `manifest.json`) and `Cargo.toml` (its `[package]` version). |
 | `release.assets.build` | Commands that build the files attached to the GitHub Release (installers, zips), from the release tag. Run locally, on Pedro's machine, since Actions is Linux-only. They start with the dependency install (`npm ci`), so the build matches the tag and not whatever the checkout had installed. |
 | `release.assets.files` | Glob patterns of the files those commands produce, relative to the repo root. |
-| `release.notes` | Client projects only: `client` (who reads the notes), `language`, and `stagingUrl` (where screenshots are taken), for `release-notes`. |
+| `release.notes` | Client projects only, for `release-notes`: `client` (who reads the deck), `language`, `staging` (where screenshots are taken: a URL, or the command that launches the staging app), and an optional `guide`, a Markdown file in the repo with the project's own deck style, staging setup and screenshot traps. |
 
 `node <plugin>/scripts/check-release.mjs [--client]`, run from the repo root, checks the `release` key: every version file exists and carries the same version, assets have a build, and a Client project has its notes settings.
 

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-const NOTES_FIELDS = ['client', 'language', 'stagingUrl'];
+const NOTES_FIELDS = ['client', 'language', 'staging'];
 
 // The `release` key with its defaults filled in.
 export function releaseSettings(raw = {}) {
@@ -69,5 +69,7 @@ export function checkRelease(root, settings, { client = false } = {}) {
       if (!settings.notes?.[field]) problems.push(`release.notes.${field} is required on a Client project`);
     }
   }
+  const guide = settings.notes?.guide;
+  if (guide && !fs.existsSync(path.join(root, guide))) problems.push(`release.notes.guide ${guide} doesn't exist`);
   return problems;
 }
