@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Factory Review verdict",
+  "description": "The final answer of a Review round, per plugin/review/standard.md. Strict: every property is required and no others are allowed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["commit", "verdict", "summary", "blocking", "suggestions", "previous", "limits"],
+  "properties": {
+    "commit": {
+      "type": "string",
+      "description": "Full SHA of the head commit that was reviewed"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["passed", "failed"],
+      "description": "failed if and only if blocking is not empty"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Two or three sentences: what the Story changes and the overall judgement"
+    },
+    "blocking": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "location", "trigger", "impact", "evidence"],
+        "properties": {
+          "id": { "type": "string", "description": "Stable across rounds, e.g. B1" },
+          "title": { "type": "string" },
+          "location": { "type": "string", "description": "path:line or path:symbol" },
+          "trigger": { "type": "string" },
+          "impact": { "type": "string" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["location", "text"],
+        "properties": {
+          "location": { "type": ["string", "null"] },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "previous": {
+      "type": "array",
+      "description": "From round 2: one entry per blocking finding of the previous round. Empty in round 1.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "note"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["resolved", "unresolved", "regressed"] },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "limits": {
+      "type": "array",
+      "description": "What could not be reviewed or checked, and why",
+      "items": { "type": "string" }
+    }
+  }
+}

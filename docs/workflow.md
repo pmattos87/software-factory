@@ -14,7 +14,8 @@ Every skill is invoked as `factory:<name>`. Most replace a user-level skill, whi
 | Shape | `shape-research` | `research` | Researches a question against primary sources into a Markdown file |
 | Shape | `shape-prototype` | `prototype` | Builds a throwaway prototype to answer a design question |
 | Plan | `split` | | Has the Task splitter propose a Story's Subtasks, each with its builder, estimate, risk and definition of done; writes them and the Story's `## Plan` once Pedro approves |
-| Build | `run` | | The Orchestrator: drives one Story's Run from `ready` through Verify and Docs to Integrate, stopping for Pedro after 2 failed rounds |
+| Build | `run` | | The Orchestrator: drives one Story's Run from `ready` through Verify, Docs and Review to Integrate, stopping for Pedro after 2 failed rounds |
+| Review | `review` | | Has Codex review the whole Story diff, posts the findings as a Story comment, records the verdict on the reviewed commit, and sends blocking findings back as a bug Subtask |
 | Plan → In integrated tests | `story-status` | `flowboard-issue` | Creates and moves Stories and Subtasks through the `flowboard` MCP |
 | Integrate | `integrate` | `ship` | Commits on the Feature branch, opens the PR into the integration branch, merges it once green, moves the Story to `integrated_tests` |
 | User testing, Production | `promote` | `release` | Cuts a picked Release's `release/vX.Y.Z` branch, tags betas for the client (Client projects), opens the PR into production, and after Pedro's merge tags, publishes the GitHub Release and marks the Release released |
@@ -39,19 +40,28 @@ None of them touches the board, commits or pushes: each ends with a fixed result
 
 1. **Plan.** `factory:story-status` creates the Story in `backlog`. Pedro refines it (`refining`) until the description is the full brief. `factory:split` has the Task splitter propose the Subtasks and name any Story this one depends on that isn't in production yet; Pedro edits and approves, and the skill writes the Subtasks with a `## Plan` section in the brief and links the dependencies. A dependency is merged into this Story's branch and ships in the same Release. Then the Story moves to `ready` and into a sprint.
 2. **Build.** Pedro starts the Run with `factory:run <KEY>`. The Orchestrator cuts the Feature branch from production, merges in the Feature branch of each Story it depends on that isn't in production yet, moves the Story to `building`, and for each Subtask in plan order: hands it to its builder, has QA Verify it, records both on the Run trail, and commits it once it passes. After the last Subtask, the Docs agent updates the docs in one more commit.
-3. **Integrate.** The Run ends with `factory:integrate`: the PR into the integration branch (the PR gate runs the Gates and conventions first), the PR checks, a merge commit as `pmattos-pr-review-agent`, and the Story in `integrated_tests`.
-4. **In integrated tests.** Pedro tests on the integration branch. When it passes, `story-status` moves the Story to `tested`. When it fails, a bug Subtask sends it back to `building`, and `factory:run` picks it up on the same Feature branch.
-5. **Release.** Pedro picks `tested` Stories into a Release on Flowboard's Releases screen, and `factory:promote` takes it to production ([Releases](#releases)). The Story ends `done`.
+3. **Review.** `factory:review` has Codex read the whole Story diff against the brief and the [review standard](../plugin/review/standard.md) ([Review](#review)). Only a pass on the branch's head goes on.
+4. **Integrate.** The Run ends with `factory:integrate`: the PR into the integration branch (the PR gate checks the Review, the Gates and the conventions first), the PR checks, a merge commit as `pmattos-pr-review-agent`, and the Story in `integrated_tests`.
+5. **In integrated tests.** Pedro tests on the integration branch. When it passes, `story-status` moves the Story to `tested`. When it fails, a bug Subtask sends it back to `building`, and `factory:run` picks it up on the same Feature branch.
+6. **Release.** Pedro picks `tested` Stories into a Release on Flowboard's Releases screen, and `factory:promote` takes it to production ([Releases](#releases)). The Story ends `done`.
 
-Review (phase 5) will slot in between Docs and Integrate.
+### Review
+
+Codex (`gpt-6-astra`, high effort) reviews each Story once, after Docs and before the PR, on the whole diff from production to the branch's head. It runs headless in a read-only sandbox through [codex-review.mjs](../plugin/scripts/codex-review.mjs), which finds `codex` through `FACTORY_CODEX`, then PATH, then the ChatGPT VS Code extension.
+
+- **A round** posts Codex's findings as a comment on the Story and records the verdict on the commit it read (`review_record`). A pass covers that commit only: any later commit needs a new round, and the PR gate checks it.
+- **A blocking finding** names its trigger, impact, location and evidence; anything less is a suggestion, and suggestions never fail a Review. They go to Pedro in the Run's report.
+- **A failed round 1** becomes a bug Subtask, `Review round 1 findings`, built, Verified and committed like any Subtask; the builder answers every finding. Round 2 resumes the same Codex session to check those answers.
+- **A failed round 2** stops the Run for Pedro, with the findings linked.
+- **Codex unavailable** (missing, failing, timing out, or answering with no usable verdict) stops the Run with "Review waits". There is no Claude fallback.
 
 ### When a Run stops
 
-A Subtask that fails Verify twice, a builder that is blocked on a decision, or a failure at Integrate stops the Run (`run_stop`): the Story stays in `building`, flagged, with the reason on its trail, and the failed Subtask's changes stay uncommitted for Pedro to read. He resolves it (rewords the brief, splits the Subtask again, fixes the cause) and asks for the Run again with "restart". Rounds count again from 1 after a restart, never after a mere new session.
+A Subtask that fails Verify twice, a builder that is blocked on a decision, a Review that fails twice or can't run, or a failure at Integrate stops the Run (`run_stop`): the Story stays in `building`, flagged, with the reason on its trail, and the failed Subtask's changes stay uncommitted for Pedro to read. He resolves it (rewords the brief, splits the Subtask again, fixes the cause) and asks for the Run again with "restart". Rounds count again from 1 after a restart, never after a mere new session.
 
 ### By hand
 
-The same Stages work without the Orchestrator: `story-status` moves the Story and each Subtask (`todo → in_progress → done`) as Pedro builds them and the Gates pass, and `factory:integrate` takes it from there.
+The same Stages work without the Orchestrator: `story-status` moves the Story and each Subtask (`todo → in_progress → done`) as Pedro builds them and the Gates pass, and `factory:integrate` takes it from there. Integrate runs `factory:review` itself after committing, and stops on anything but a pass: the fixes are Pedro's, and the next Review is round 2.
 
 ## Releases
 
@@ -99,6 +109,7 @@ A Consumer project adopts the Workflow skills with:
 3. Its board switched to the Factory ladder. Open items are mapped first, because `flowboard-cli project set <KEY> --ladder factory` refuses while any open item isn't a top-level `story` in a Story status, or a `task`/`bug` under a story in a Subtask status.
 4. Its `CLAUDE.md` declares the board and points at `story-status`, `integrate` and `promote`.
 5. A `release` key in `.claude/factory.json` once it ships Releases: `check-release.mjs` (with `--client` on a Client project) checks it.
+6. Codex reachable on the machine (the ChatGPT VS Code extension, `codex` on PATH, or `FACTORY_CODEX`), signed in, and Flowboard installed, since the PR gate reads each Story's Review through `flowboard-cli`.
 
 Outside Consumer projects, the user-level originals keep working unchanged.
 

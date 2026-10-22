@@ -10,6 +10,7 @@ import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides } from '../plugin/scripts/lib/specialists.mjs';
 import { releaseSettings, readVersion, checkRelease } from '../plugin/scripts/lib/release.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
+import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -164,4 +165,59 @@ test('setVersion edits only the version, keeping the format', () => {
   const cargoLock = '[[package]]\nname = "aaa"\nversion = "1.5.1"\n\n[[package]]\nname = "app"\nversion = "1.5.1"\n';
   assert.equal(setLockedVersion(cargoLock, 'app', '1.6.0'), '[[package]]\nname = "aaa"\nversion = "1.5.1"\n\n[[package]]\nname = "app"\nversion = "1.6.0"\n');
   assert.throws(() => setVersion('notes.json', '{}', '1.6.0'), /carries no version/);
+});
+
+test('the Review verdict schema is strict, as codex --output-schema requires', () => {
+  const schema = JSON.parse(fs.readFileSync(new URL('../plugin/review/verdict.schema.json', import.meta.url), 'utf8'));
+  const walk = (node, at) => {
+    if (node.type === 'object') {
+      assert.equal(node.additionalProperties, false, `${at} allows extra properties`);
+      assert.deepEqual([...node.required].sort(), Object.keys(node.properties).sort(), `${at} leaves a property optional`);
+      for (const [k, v] of Object.entries(node.properties)) walk(v, `${at}.${k}`);
+    }
+    if (node.type === 'array') walk(node.items, `${at}[]`);
+  };
+  walk(schema, 'verdict');
+  assert.deepEqual(schema.properties.verdict.enum, ['passed', 'failed']);
+});
+
+test('findCodex prefers FACTORY_CODEX, then PATH, then the newest VS Code extension', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-'));
+  const exe = process.platform === 'win32' ? 'codex.exe' : 'codex';
+  const put = (...p) => { const f = path.join(dir, ...p); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, ''); return f; };
+  const old = put('home/.vscode/extensions/openai.chatgpt-1/bin/win/', exe);
+  const newer = put('home/.vscode/extensions/openai.chatgpt-2/bin/win/', exe);
+  fs.utimesSync(old, new Date(1000), new Date(1000));
+  const home = path.join(dir, 'home');
+  assert.equal(findCodex({ env: {}, home }), newer);
+  const onPath = put('bin', exe);
+  assert.equal(findCodex({ env: { PATH: path.join(dir, 'bin') }, home }), onPath);
+  assert.equal(findCodex({ env: { FACTORY_CODEX: old, PATH: path.join(dir, 'bin') }, home }), old);
+  assert.equal(findCodex({ env: { FACTORY_CODEX: path.join(dir, 'nope') }, home }), null);
+  assert.equal(findCodex({ env: {}, home: path.join(dir, 'empty') }), null);
+});
+
+test('round 1 carries the standard; a resumed round sends only the request', () => {
+  assert.match(buildPrompt('REQ', { standard: 'STD' }), /^STD[\s\S]*# Review request\n\nREQ/);
+  assert.equal(buildPrompt('REQ', { resume: true, standard: 'STD' }), 'REQ');
+  const args = codexArgs({ resume: 'abc', verdictFile: 'v.json' });
+  assert.deepEqual(args.slice(0, 3), ['exec', 'resume', 'abc']);
+  assert.ok(args.includes('sandbox_mode="read-only"') && args.includes(SCHEMA));
+  assert.ok(!codexArgs({ verdictFile: 'v.json' }).includes('resume'));
+});
+
+test('readEvents finds the session and the errors', () => {
+  const jsonl = ['{"type":"thread.started","thread_id":"t-1"}', 'noise', '{"type":"turn.failed","error":{"message":"quota"}}'].join('\n');
+  assert.deepEqual(readEvents(jsonl), { session: 't-1', errors: ['quota'] });
+});
+
+test('a verdict must be coherent and on the reviewed head', () => {
+  const head = 'abcdef1234567890';
+  const ok = { commit: head, verdict: 'passed', blocking: [] };
+  assert.deepEqual(checkVerdict(ok, head), []);
+  assert.deepEqual(checkVerdict({ ...ok, commit: 'abcdef1' }, head), []);
+  assert.match(checkVerdict({ ...ok, commit: '999' }, head).join(), /not abcdef/);
+  assert.match(checkVerdict({ ...ok, blocking: [{}] }, head).join(), /passed with 1/);
+  assert.match(checkVerdict({ ...ok, verdict: 'failed' }, head).join(), /failed with 0/);
+  assert.deepEqual(checkVerdict(null, head), ['no verdict JSON']);
 });

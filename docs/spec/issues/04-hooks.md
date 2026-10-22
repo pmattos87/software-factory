@@ -39,6 +39,8 @@ The PR gate replaces Pedro's merge approval. After the PR opens, auto-merge depe
 
 **Scope.** Hooks run in **every session** of a Consumer project, Pedro's manual work included. Shipping without Review needs a conscious, visible override, never a quiet bypass.
 
+- *Amended 2026-10-22 (phase 5, SF-6):* the PR gate has **no override**. Shipping without Review means Pedro opens the PR from his own terminal, which the hooks don't see: that is the visible bypass. The Review the gate requires is a passed verdict on the branch's **head** commit, read from the Story through `flowboard-cli`; a gate that can't read it blocks. Two PRs need no Review of their own: a `release/vX.Y.Z` PR into production (each pick was reviewed on its own Story), and a legacy project's Story (it can't record a Review).
+
 **Ownership.** The Factory plugin ships the hooks above; projects can add their own hooks (the vitest-related runner becomes one, for vitest projects) but cannot switch off the Factory's. The deny lists stay as a second layer.
 
 Passed on: Flowboard integration (the Story records the Review verdict so the PR gate can read it), GitHub conventions (what the PR's checks are and whether Actions runs them), Skills consolidation (`ship`'s own secret scan now overlaps the hook).
