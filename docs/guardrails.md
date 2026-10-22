@@ -49,7 +49,7 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
   "release": {
     "versionFiles": ["package.json", "package-lock.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml"],
     "assets": {
-      "build": ["npx tauri build"],
+      "build": ["npm ci", "npx tauri build"],
       "files": ["src-tauri/target/release/bundle/nsis/*-setup.exe", "src-tauri/target/release/bundle/msi/*.msi"]
     }
   }
@@ -68,7 +68,7 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `ci.install` | Commands Actions runs before the gates and build (dependency install, CI-only prep). |
 | `agents` | Optional tier overrides for a Role agent or a Specialist: `model` as an alias (`opus`, `sonnet`, `haiku`) and the `reason`, both required. Used by `split` and `run`; checked by `check-specialists.mjs` ([Specialists](specialists.md)). |
 | `release.versionFiles` | Files that carry the project's version, all bumped together when a Release is cut: JSON files with a top-level `version` (`package.json`, `package-lock.json`, `tauri.conf.json`, `manifest.json`) and `Cargo.toml` (its `[package]` version). |
-| `release.assets.build` | Commands that build the files attached to the GitHub Release (installers, zips). Run locally, on Pedro's machine: Actions is Linux-only. |
+| `release.assets.build` | Commands that build the files attached to the GitHub Release (installers, zips), from the release tag. Run locally, on Pedro's machine, since Actions is Linux-only. They start with the dependency install (`npm ci`), so the build matches the tag and not whatever the checkout had installed. |
 | `release.assets.files` | Glob patterns of the files those commands produce, relative to the repo root. |
 | `release.notes` | Client projects only: `client` (who reads the notes), `language`, and `stagingUrl` (where screenshots are taken), for `release-notes`. |
 
