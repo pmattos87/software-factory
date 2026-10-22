@@ -165,3 +165,17 @@ test('setVersion edits only the version, keeping the format', () => {
   assert.equal(setLockedVersion(cargoLock, 'app', '1.6.0'), '[[package]]\nname = "aaa"\nversion = "1.5.1"\n\n[[package]]\nname = "app"\nversion = "1.6.0"\n');
   assert.throws(() => setVersion('notes.json', '{}', '1.6.0'), /carries no version/);
 });
+
+test('the Review verdict schema is strict, as codex --output-schema requires', () => {
+  const schema = JSON.parse(fs.readFileSync(new URL('../plugin/review/verdict.schema.json', import.meta.url), 'utf8'));
+  const walk = (node, at) => {
+    if (node.type === 'object') {
+      assert.equal(node.additionalProperties, false, `${at} allows extra properties`);
+      assert.deepEqual([...node.required].sort(), Object.keys(node.properties).sort(), `${at} leaves a property optional`);
+      for (const [k, v] of Object.entries(node.properties)) walk(v, `${at}.${k}`);
+    }
+    if (node.type === 'array') walk(node.items, `${at}[]`);
+  };
+  walk(schema, 'verdict');
+  assert.deepEqual(schema.properties.verdict.enum, ['passed', 'failed']);
+});
