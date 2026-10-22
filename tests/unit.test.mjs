@@ -1,11 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { splitCommands, invocations } from '../plugin/scripts/lib/shell.mjs';
 import { parsePush } from '../plugin/scripts/lib/push.mjs';
 import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scripts/lib/conventions.mjs';
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides } from '../plugin/scripts/lib/specialists.mjs';
+import { releaseSettings, readVersion, checkRelease } from '../plugin/scripts/lib/release.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -95,4 +98,29 @@ test('tier overrides name an agent, an alias and a reason', () => {
   assert.deepEqual(checkTierOverrides({ implementer: { model: 'claude-opus-5-5', reason: 'x' } })[0].problems.length, 1);
   assert.deepEqual(checkTierOverrides({ qa: { model: 'sonnet' } })[0].problems, ['a reason is required']);
   assert.deepEqual(checkTierOverrides({ ghost: { model: 'opus', reason: 'x' } })[0].problems, ['no such agent']);
+});
+
+test('readVersion reads JSON files and the [package] section of Cargo.toml', () => {
+  assert.equal(readVersion('package.json', '{"name":"x","version":"1.5.1"}'), '1.5.1');
+  assert.equal(readVersion('src-tauri/Cargo.toml', '[package]\nname = "x"\nversion = "1.5.1"\n\n[dependencies]\nserde = { version = "1" }\n'), '1.5.1');
+  assert.equal(readVersion('Cargo.toml', '[workspace]\nmembers = []\n'), null);
+  assert.equal(readVersion('notes.json', '{'), null);
+});
+
+test('release settings are checked against the project files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-release-'));
+  fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.5.1"}');
+  fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.5.1"\n');
+  const check = (raw, opts) => checkRelease(root, releaseSettings(raw), opts);
+
+  assert.deepEqual(check({ versionFiles: ['package.json', 'Cargo.toml'], assets: { build: ['npm run dist'], files: ['dist/*.zip'] } }), []);
+  assert.deepEqual(check({}), ['release.versionFiles is empty: name the files that carry the version']);
+  assert.deepEqual(check({ versionFiles: ['missing.json'] }), ["missing.json doesn't exist"]);
+  assert.deepEqual(check({ versionFiles: ['package.json'], assets: { files: ['x'] } }), ['release.assets.files is set but release.assets.build is empty: nothing would produce them']);
+
+  fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.4.0"\n');
+  assert.match(check({ versionFiles: ['package.json', 'Cargo.toml'] })[0], /disagree: package.json 1.5.1, Cargo.toml 1.4.0/);
+
+  assert.equal(check({ versionFiles: ['package.json'] }, { client: true }).length, 3);
+  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { client: 'Eduardo & Luli', language: 'pt-BR', stagingUrl: 'https://x' } }, { client: true }), []);
 });
