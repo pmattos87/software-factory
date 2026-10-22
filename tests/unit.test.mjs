@@ -9,6 +9,7 @@ import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scri
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides } from '../plugin/scripts/lib/specialists.mjs';
 import { releaseSettings, readVersion, checkRelease } from '../plugin/scripts/lib/release.mjs';
+import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -132,4 +133,30 @@ test('release settings are checked against the project files', () => {
 
   assert.equal(check({ versionFiles: ['package.json'] }, { client: true }).length, 3);
   assert.deepEqual(check({ versionFiles: ['package.json'], notes: { client: 'Eduardo & Luli', language: 'pt-BR', stagingUrl: 'https://x' } }, { client: true }), []);
+});
+
+test('the next version follows the commit types', () => {
+  assert.equal(bumpKind(['fix(ui): x', 'docs: y']), 'patch');
+  assert.equal(bumpKind(['fix: x', 'feat(board): y\n\nbody']), 'minor');
+  assert.equal(bumpKind(['feat(api)!: drop v1']), 'major');
+  assert.equal(bumpKind(['fix: x\n\nBREAKING CHANGE: the CLI renames move']), 'major');
+  assert.equal(nextVersion('1.5.1', 'patch'), '1.5.2');
+  assert.equal(nextVersion('1.5.1', 'minor'), '1.6.0');
+  assert.equal(nextVersion('1.5.1', 'major'), '2.0.0');
+});
+
+test('setVersion edits only the version, keeping the format', () => {
+  const pkg = '{\n  "name": "x",\n  "version": "1.5.1",\n  "dependencies": {\n    "y": "1.5.1"\n  }\n}\n';
+  assert.equal(setVersion('package.json', pkg, '1.6.0'), pkg.replace('"version": "1.5.1"', '"version": "1.6.0"'));
+
+  const lock = '{\n  "name": "x",\n  "version": "1.5.1",\n  "packages": {\n    "": {\n      "name": "x",\n      "version": "1.5.1"\n    },\n    "node_modules/y": {\n      "version": "1.5.1"\n    }\n  }\n}\n';
+  const out = JSON.parse(setVersion('package-lock.json', lock, '1.6.0'));
+  assert.deepEqual([out.version, out.packages[''].version, out.packages['node_modules/y'].version], ['1.6.0', '1.6.0', '1.5.1']);
+
+  const cargo = '[package]\nname = "app"\nversion = "1.5.1"\n\n[dependencies]\nserde = { version = "1.5.1" }\n';
+  assert.equal(setVersion('src-tauri/Cargo.toml', cargo, '1.6.0'), cargo.replace('version = "1.5.1"\n\n', 'version = "1.6.0"\n\n'));
+
+  const cargoLock = '[[package]]\nname = "aaa"\nversion = "1.5.1"\n\n[[package]]\nname = "app"\nversion = "1.5.1"\n';
+  assert.equal(setLockedVersion(cargoLock, 'app', '1.6.0'), '[[package]]\nname = "aaa"\nversion = "1.5.1"\n\n[[package]]\nname = "app"\nversion = "1.6.0"\n');
+  assert.throws(() => setVersion('notes.json', '{}', '1.6.0'), /carries no version/);
 });
