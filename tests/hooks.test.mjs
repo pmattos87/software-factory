@@ -11,10 +11,11 @@ import { spawnSync } from 'node:child_process';
 
 const SCRIPTS = path.resolve(import.meta.dirname, '../plugin/scripts');
 
-function runHook(hook, command, cwd) {
+function runHook(hook, command, cwd, env = {}) {
   const r = spawnSync('node', [path.join(SCRIPTS, `${hook}.mjs`)], {
     input: JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd }),
     encoding: 'utf8',
+    env: { ...process.env, ...env },
   });
   return { blocked: r.status === 2, status: r.status, stderr: r.stderr };
 }
@@ -43,6 +44,22 @@ function repo(config) {
 
 // Built at runtime so this file never holds a literal token.
 const fakeToken = () => 'ghp_' + crypto.randomBytes(27).toString('base64').replace(/[^a-zA-Z0-9]/g, 'x').slice(0, 36);
+
+// A stand-in for flowboard-cli `story show`: the Stories' reviews come from
+// FAKE_STORIES ({ key: review }, or "legacy" for a legacy project's Story).
+const FAKE_CLI = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-cli-')), 'flowboard-cli.mjs');
+fs.writeFileSync(FAKE_CLI, `
+const key = process.argv[4];
+const s = JSON.parse(process.env.FAKE_STORIES || '{}')[key];
+const fail = (error) => { console.error(JSON.stringify({ error })); process.exit(1); };
+if (s === 'legacy') fail(key + ' belongs to a legacy project; the Factory does not write to it');
+if (!s) fail(key + ' not found');
+console.log(JSON.stringify({ key, review: s }));
+`);
+process.env.FLOWBOARD_CLI = FAKE_CLI;
+const reviewed = (key, commit, verdict = 'passed') => {
+  process.env.FAKE_STORIES = JSON.stringify({ [key]: { verdict, commit, findings_url: null } });
+};
 
 let dir;
 before(() => {
@@ -119,6 +136,7 @@ test('PR gate: conventions and gates must pass', () => {
   fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
   git(dir, 'add', 'a.txt');
   git(dir, 'commit', '-q', '-m', 'feat(a): add a');
+  reviewed('FB-7', git(dir, 'rev-parse', 'HEAD'));
   assert.ok(!create('feat: add a (FB-7)').blocked, 'compliant PR passes');
 
   assert.match(create('feat: add a').stderr, /Story key FB-7/);
@@ -129,6 +147,7 @@ test('PR gate: conventions and gates must pass', () => {
   git(dir, 'commit', '-q', '-m', 'oops');
   assert.match(create('feat: add a (FB-7)').stderr, /isn't a conventional commit/);
   git(dir, 'commit', '-q', '--amend', '-m', 'test: break the gate');
+  reviewed('FB-7', git(dir, 'rev-parse', 'HEAD'));
   assert.match(create('feat: add a (FB-7)').stderr, /Gate failed/);
 
   fs.writeFileSync(path.join(dir, 'a.txt'), 'changed\n');
@@ -151,4 +170,34 @@ test('PR gate: a project without config is refused', () => {
   const bare = repo(null);
   assert.match(runHook('pr-gate', 'gh pr create --base develop --title x', bare).stderr, /no \.claude\/factory\.json/);
   assert.ok(!runHook('pr-gate', 'gh pr list', bare).blocked);
+});
+
+test('PR gate: a Feature branch needs a passed Review on its head', () => {
+  const create = (title, base = 'develop', env) => runHook('pr-gate', `gh pr create --base ${base} --title "${title}" --body x`, dir, env);
+  git(dir, 'checkout', '-q', '-b', 'feat/FB-8-review');
+  fs.writeFileSync(path.join(dir, 'b.txt'), 'b\n');
+  git(dir, 'add', 'b.txt');
+  git(dir, 'commit', '-q', '-m', 'feat(b): add b');
+  const head = git(dir, 'rev-parse', 'HEAD');
+
+  process.env.FAKE_STORIES = JSON.stringify({ 'FB-8': { verdict: null, commit: null } });
+  assert.match(create('FB-8: add b').stderr, /FB-8 has no passed Review \(not reviewed\)/);
+  reviewed('FB-8', head, 'failed');
+  assert.match(create('FB-8: add b').stderr, /no passed Review \(failed\)/);
+  reviewed('FB-8', git(dir, 'rev-parse', 'HEAD~1'));
+  assert.match(create('FB-8: add b').stderr, /Review the new head/);
+  reviewed('FB-8', head.slice(0, 7));
+  assert.ok(!create('FB-8: add b').blocked, 'a passed Review on the head (short SHA) opens it');
+
+  process.env.FAKE_STORIES = '{}';
+  assert.match(create('FB-8: add b').stderr, /Can't read FB-8's Review from Flowboard: FB-8 not found/);
+  assert.match(create('FB-8: add b', 'develop', { FLOWBOARD_CLI: path.join(dir, 'missing.mjs') }).stderr, /flowboard-cli not found/);
+  process.env.FAKE_STORIES = JSON.stringify({ 'FB-8': 'legacy' });
+  assert.ok(!create('FB-8: add b').blocked, "a legacy project's Story has no Review to require");
+
+  git(dir, 'checkout', '-q', '-b', 'release/v1.2.0');
+  process.env.FAKE_STORIES = '{}';
+  const rel = create('Release v1.2.0', 'main');
+  assert.ok(!rel.blocked, rel.stderr);
+  git(dir, 'checkout', '-q', 'main');
 });

@@ -76,3 +76,29 @@ export function checkVerdict(v, head) {
   }
   return problems;
 }
+
+// The Flowboard CLI the PR gate reads Reviews with: FLOWBOARD_CLI, then PATH,
+// then the default install. Returns [command, leading args] (a .mjs runs under node,
+// which is how the tests fake it) or null.
+export function findFlowboardCli({ env = process.env } = {}) {
+  const exe = process.platform === 'win32' ? 'flowboard-cli.exe' : 'flowboard-cli';
+  const candidates = env.FLOWBOARD_CLI ? [env.FLOWBOARD_CLI] : [
+    ...(env.PATH ?? env.Path ?? '').split(path.delimiter).filter(Boolean).map((d) => path.join(d, exe)),
+    process.platform === 'win32' ? path.join(env.ProgramFiles ?? 'C:\\Program Files', 'FlowBoard', exe) : null,
+  ].filter(Boolean);
+  const file = candidates.find((f) => fs.existsSync(f));
+  if (!file) return null;
+  return file.endsWith('.mjs') ? [process.execPath, [file]] : [file, []];
+}
+
+// Why a PR from `head` may not open for this Story; null when its Review passed on it.
+export function checkReview(story, head) {
+  const review = story?.review ?? {};
+  if (review.verdict !== 'passed') {
+    return `${story.key} has no passed Review (${review.verdict ?? 'not reviewed'}). Run factory:review first.`;
+  }
+  if (!review.commit || !(head.startsWith(review.commit) || review.commit.startsWith(head))) {
+    return `${story.key}'s Review passed on ${review.commit}, but the branch is at ${head}. Review the new head first.`;
+  }
+  return null;
+}
