@@ -10,12 +10,12 @@ Shipped in [plugin/hooks/hooks.json](../plugin/hooks/hooks.json). They run befor
 |---|---|
 | [Secret scan](../plugin/scripts/secret-scan.mjs) | A `git commit` whose changes carry a secret (staged changes; plus unstaged and untracked files when the same command runs `git add`, or the commit uses `-a` or paths), and a `git push` whose outgoing commits carry one. Uses [gitleaks](https://github.com/gitleaks/gitleaks); blocks if gitleaks is missing. |
 | [Protected branches](../plugin/scripts/protected-branches.mjs) | A `git commit` while on the integration or production branch, and a `git push` that targets either one (by name, `HEAD:<branch>`, a bare push from them, `--all`/`--mirror`, or a delete). Tag pushes pass, including a bare `git push --tags` from production. |
-| [PR gate](../plugin/scripts/pr-gate.mjs) | A `gh pr create` unless the working tree is clean, the PR follows the conventions below, and every gate command passes. Requiring a passed Review comes with phase 5. |
+| [PR gate](../plugin/scripts/pr-gate.mjs) | A `gh pr create` unless the working tree is clean, the PR follows the conventions below, the Feature branch's Story has a passed Review on the branch's head, and every gate command passes. The Review is read with `flowboard-cli story show` (found through `FLOWBOARD_CLI`, PATH, then `C:\Program Files\FlowBoard`); the gate blocks when it can't read it. A `release/vX.Y.Z` PR needs no Review of its own (its Stories were reviewed), nor does a legacy project's Story, which can't record one. There is no override: shipping without Review is Pedro's, from his own terminal. |
 | [Merge guard](../plugin/scripts/merge-guard.mjs) | A `gh pr merge` into the production branch (only Pedro merges there), or one without `--merge`, with `--squash`/`--rebase`, `--delete-branch` or `--admin`. Reads the PR's target branch with `gh pr view`. |
 
 False positive from the secret scan: put a `gitleaks:allow` comment on the line, or add its fingerprint (shown in the block message) to `.gitleaksignore`. A project can tune rules with its own `.gitleaks.toml`.
 
-Requirements on the machine: Node and gitleaks (`winget install Gitleaks.Gitleaks`; the hook also finds a winget install that isn't on PATH yet, or uses `GITLEAKS_PATH`).
+Requirements on the machine: Node, Flowboard (for `flowboard-cli`) and gitleaks (`winget install Gitleaks.Gitleaks`; the hook also finds a winget install that isn't on PATH yet, or uses `GITLEAKS_PATH`).
 
 ## Conventions
 

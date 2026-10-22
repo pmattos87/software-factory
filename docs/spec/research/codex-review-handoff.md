@@ -1,5 +1,7 @@
 # Codex Review handoff
 
+> *Resolved 2026-10-22 (phase 5, SF-6).* The transport is **`codex exec`**, headless and synchronous: read-only sandbox, `--output-schema` with [verdict.schema.json](../../../plugin/review/verdict.schema.json), round 2 by `codex exec resume <session>`. It replaces `codex queue`, so there are no conversation IDs, return addresses or acknowledgements. *Unavailable* means codex is missing, exits non-zero, times out, or gives no usable verdict. The shared standard is [plugin/review/standard.md](../../../plugin/review/standard.md). Findings are a comment on the Story. A failed round 1 becomes a bug Subtask. What's below is the input that led there.
+
 Input for the **Codex hookup** item under *Not yet specified* on the [map](../map.md). Design notes from Pedro's conversation with Codex about its role as the Review agent, filed 2026-10-20. Only the model/effort choice is decided; the transport was tested once; everything else is a recommendation, not yet implemented.
 
 ## Model and effort — decided
