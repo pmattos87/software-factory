@@ -1,6 +1,6 @@
 # Workflow
 
-The skills and Role agents the Factory ships, and how a Story goes from `backlog` to `integrated_tests`. Why the Workflow has these Stages: [Workflow stages](spec/issues/02-workflow-stages.md). What is enforced mechanically: [Guardrails](guardrails.md).
+The skills and Role agents the Factory ships, how a Story goes from `backlog` to `integrated_tests`, and how a Release takes `tested` Stories to production. Why the Workflow has these Stages: [Workflow stages](spec/issues/02-workflow-stages.md). What is enforced mechanically: [Guardrails](guardrails.md).
 
 ## Skills
 
@@ -17,6 +17,8 @@ Every skill is invoked as `factory:<name>`. Most replace a user-level skill, whi
 | Build | `run` | | The Orchestrator: drives one Story's Run from `ready` through Verify and Docs to Integrate, stopping for Pedro after 2 failed rounds |
 | Plan → In integrated tests | `story-status` | `flowboard-issue` | Creates and moves Stories and Subtasks through the `flowboard` MCP |
 | Integrate | `integrate` | `ship` | Commits on the Feature branch, opens the PR into the integration branch, merges it once green, moves the Story to `integrated_tests` |
+| User testing, Production | `promote` | `release` | Cuts a picked Release's `release/vX.Y.Z` branch, tags betas for the client (Client projects), opens the PR into production, and after Pedro's merge tags, publishes the GitHub Release and marks the Release released |
+| User testing | `release-notes` | `release-notes` | Turns a Release (or one beta) into a client-facing slide deck with screenshots from staging; Client projects only |
 
 The Shape skills are verbatim copies of the originals, pinned to the Factory's version. `shape-map` carries its own tracker description ([TRACKER.md](../plugin/skills/shape-map/TRACKER.md)) in place of the dropped `setup-matt-pocock-skills`.
 
@@ -39,6 +41,7 @@ None of them touches the board, commits or pushes: each ends with a fixed result
 2. **Build.** Pedro starts the Run with `factory:run <KEY>`. The Orchestrator cuts the Feature branch from production, merges in the Feature branch of each Story it depends on that isn't in production yet, moves the Story to `building`, and for each Subtask in plan order: hands it to its builder, has QA Verify it, records both on the Run trail, and commits it once it passes. After the last Subtask, the Docs agent updates the docs in one more commit.
 3. **Integrate.** The Run ends with `factory:integrate`: the PR into the integration branch (the PR gate runs the Gates and conventions first), the PR checks, a merge commit as `pmattos-pr-review-agent`, and the Story in `integrated_tests`.
 4. **In integrated tests.** Pedro tests on the integration branch. When it passes, `story-status` moves the Story to `tested`. When it fails, a bug Subtask sends it back to `building`, and `factory:run` picks it up on the same Feature branch.
+5. **Release.** Pedro picks `tested` Stories into a Release on Flowboard's Releases screen, and `factory:promote` takes it to production ([Releases](#releases)). The Story ends `done`.
 
 Review (phase 5) will slot in between Docs and Integrate.
 
@@ -49,6 +52,25 @@ A Subtask that fails Verify twice, a builder that is blocked on a decision, or a
 ### By hand
 
 The same Stages work without the Orchestrator: `story-status` moves the Story and each Subtask (`todo → in_progress → done`) as Pedro builds them and the Gates pass, and `factory:integrate` takes it from there.
+
+## Releases
+
+A Release is a version and the `tested` Stories Pedro picks into it, on Flowboard's Releases screen. The screen suggests the version (the last released one, bumped by the picked branches' types) and warns when a pick depends on a Story outside the Release. The pick is the source of truth: `factory:promote` reads it, and running it again brings the branch back in line after the pick changes.
+
+On an Internal project:
+
+1. **Cut.** `promote` merges each pick's Feature branch onto production locally, proposes the version from the commits since the last release tag (breaking → major, `feat` → minor, anything else → patch) for Pedro to confirm, names the branch `release/vX.Y.Z`, bumps every file in `release.versionFiles` (and `Cargo.lock`) in a `chore(release): vX.Y.Z` commit, and pushes. No PR targets a Release branch: Feature branches reach it only through these merges.
+2. **Changed pick.** An added pick, or new commits on one, are merged in. A removed pick re-cuts the branch from production, after Pedro's go-ahead.
+3. **PR into production**, as the machine account, titled `Release vX.Y.Z`, with notes grouped by type. Its PR checks include the build. **Pedro merges it**: that merge is the Promote gate, and the merge-guard hook refuses anyone else's.
+4. **Finish**, when `promote` runs again after the merge: tag `vX.Y.Z` on the merge commit, build `release.assets` from the tag, publish the GitHub Release with them, move the Release to `released` (its Stories go to `done` with it), and delete the Release's Feature branches and its Release branch.
+
+On a Client project, **User testing** comes between 2 and 3:
+
+- After the cut, `promote` tags `vX.Y.Z-beta.1` on the Release branch, publishes it as a GitHub pre-release with its assets, and moves the Release to `user_testing`: its Stories go to the primary client contact. `factory:release-notes` turns it into a deck for the client.
+- **A bug the client finds** becomes a bug Subtask, which sends the Story back to `building`. It's fixed on the Story's Feature branch, integrated and passed by Pedro (`tested`) as any fix. Then `promote` merges it into the Release branch, tags the next beta and returns the Story to `user_testing`. Once a beta exists, a removed pick is reverted, never re-cut.
+- When Pedro says the client approved the last beta, `promote` opens the PR into production, and goes on from step 3. The approved beta is what ships: the branch isn't synced once that PR is open.
+
+The release settings (`release.versionFiles`, `release.assets`, and `release.notes` on Client projects) are in [Guardrails](guardrails.md#per-project-config).
 
 ## Merging into the integration branch
 
@@ -69,12 +91,14 @@ A Consumer project adopts the Workflow skills with:
    ```json
    "skillOverrides": {
      "ship": "off", "flowboard-issue": "off", "grilling": "off", "domain-modeling": "off",
-     "wayfinder": "off", "research": "off", "prototype": "off", "planning": "off"
+     "wayfinder": "off", "research": "off", "prototype": "off", "planning": "off",
+     "release": "off", "release-notes": "off"
    }
    ```
 
 3. Its board switched to the Factory ladder. Open items are mapped first, because `flowboard-cli project set <KEY> --ladder factory` refuses while any open item isn't a top-level `story` in a Story status, or a `task`/`bug` under a story in a Subtask status.
-4. Its `CLAUDE.md` declares the board and points at `story-status` and `integrate`.
+4. Its `CLAUDE.md` declares the board and points at `story-status`, `integrate` and `promote`.
+5. A `release` key in `.claude/factory.json` once it ships Releases: `check-release.mjs` (with `--client` on a Client project) checks it.
 
 Outside Consumer projects, the user-level originals keep working unchanged.
 

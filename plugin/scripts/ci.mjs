@@ -22,13 +22,12 @@ switch (process.argv[2]) {
   case 'plan': {
     // Which checks run into which branch: docs/spec/issues/10-pr-checks.md
     const intoProduction = BASE_REF === config.branches.production;
-    const intoRelease = BASE_REF.startsWith('release/');
     const changed = (git(root, 'diff', '--name-only', `${BASE_SHA}...${HEAD_SHA}`) ?? '').split('\n').filter(Boolean);
     const docsOnly = changed.length > 0 && changed.every((f) => DOCS.test(f));
 
     const kinds = [];
     if (config.gates.length && !docsOnly) kinds.push('gates');
-    if (config.build.length && (intoProduction || intoRelease)) kinds.push('build');
+    if (config.build.length && intoProduction) kinds.push('build');
     output({
       kinds: JSON.stringify(kinds),
       'secret-scan': String(!intoProduction),

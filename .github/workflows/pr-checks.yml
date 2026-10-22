@@ -3,7 +3,7 @@
 #
 #   on:
 #     pull_request:
-#       branches: [develop, main, 'release/**']
+#       branches: [develop, main]
 #   jobs:
 #     factory:
 #       uses: pmattos87/software-factory/.github/workflows/pr-checks.yml@main

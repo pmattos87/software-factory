@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { releaseSettings } from './release.mjs';
 
 export const CONFIG_PATH = '.claude/factory.json';
 
@@ -20,6 +21,7 @@ export function loadConfig(root) {
     build: raw.build ?? [],
     ci: raw.ci ?? {},
     agents: raw.agents ?? {},
+    release: releaseSettings(raw.release),
   };
 }
 

@@ -32,9 +32,10 @@ for (const inv of invocations(command, cwd)) {
   } else if (inv.sub === 'push') {
     const push = parsePush(inv.args);
     if (push.all) block('protected-branches', `git push --all/--mirror would push ${protectedNames.join(' and ')}. Push the Feature branch by name.`);
+    // `git push --tags` with no refspec sends only tags, whatever branch it runs on.
     const targets = push.refspecs.length
       ? push.refspecs.map((r) => (r.dst === 'HEAD' ? onBranch : r.dst))
-      : [onBranch, upstreamName(root, onBranch)];
+      : push.tags ? [] : [onBranch, upstreamName(root, onBranch)];
     const hit = targets.find((t) => protectedNames.includes(t));
     if (hit) block('protected-branches', `Pushes to ${hit} are not allowed. ${hit} only changes through PRs.`);
   }

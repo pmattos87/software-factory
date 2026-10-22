@@ -68,6 +68,11 @@ test('protected branches: pushes to main or develop are blocked', () => {
   assert.ok(!runHook('protected-branches', 'git push -u origin feat/FB-1-push', dir).blocked);
   git(dir, 'checkout', '-q', 'main');
   assert.ok(runHook('protected-branches', 'git push', dir).blocked, 'bare push from main');
+  for (const cmd of ['git push --tags', 'git push origin --tags', 'git push origin v1.6.0', 'git push origin refs/tags/v1.6.0', 'git push origin --delete release/v1.6.0']) {
+    assert.ok(!runHook('protected-branches', cmd, dir).blocked, `${cmd} from main`);
+  }
+  assert.ok(runHook('protected-branches', 'git push origin --delete develop', dir).blocked);
+  assert.ok(runHook('protected-branches', 'git push --tags origin main', dir).blocked, 'tags plus a protected branch');
   git(dir, 'branch', '-q', '-D', 'feat/FB-1-push');
 });
 

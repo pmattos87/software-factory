@@ -1,11 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { splitCommands, invocations } from '../plugin/scripts/lib/shell.mjs';
 import { parsePush } from '../plugin/scripts/lib/push.mjs';
 import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scripts/lib/conventions.mjs';
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides } from '../plugin/scripts/lib/specialists.mjs';
+import { releaseSettings, readVersion, checkRelease } from '../plugin/scripts/lib/release.mjs';
+import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -24,7 +28,7 @@ test('invocations follow cd and git -C', () => {
 });
 
 test('parsePush reads remotes, refspecs and deletes', () => {
-  assert.deepEqual(parsePush(['-u', 'origin', 'feat/x']), { remote: 'origin', all: false, refspecs: [{ src: 'feat/x', dst: 'feat/x' }] });
+  assert.deepEqual(parsePush(['-u', 'origin', 'feat/x']), { remote: 'origin', all: false, tags: false, refspecs: [{ src: 'feat/x', dst: 'feat/x' }] });
   assert.deepEqual(parsePush(['origin', 'HEAD:refs/heads/develop']).refspecs, [{ src: 'HEAD', dst: 'develop' }]);
   assert.deepEqual(parsePush(['origin', ':main']).refspecs, [{ src: null, dst: 'main' }]);
   assert.deepEqual(parsePush(['origin', '--delete', 'main']).refspecs, [{ src: null, dst: 'main' }]);
@@ -36,7 +40,6 @@ const pr = (over) => checkPullRequest({ boardKey: 'FB', branches, head: 'feat/FB
 
 test('a compliant Feature branch PR passes', () => {
   assert.deepEqual(pr({}), []);
-  assert.deepEqual(pr({ base: 'release/v1.2.0' }), []);
   assert.deepEqual(parseFeatureBranch('fix/FB-3-x', 'FB'), { type: 'fix', story: 'FB-3' });
   assert.deepEqual(pr({ boardKey: ['FB', 'SF'], head: 'chore/SF-21-checks', title: 'chore: checks (SF-21)' }), []);
 });
@@ -45,14 +48,24 @@ test('convention violations are reported', () => {
   assert.equal(pr({ head: 'feature/thing' }).length, 1);
   assert.equal(pr({ head: 'feat/HL-12-thing' }).length, 1);
   assert.equal(pr({ base: 'main' }).length, 1);
+  assert.match(pr({ base: 'release/v1.2.0' })[0], /PR'd into develop only/);
   assert.equal(pr({ title: 'feat: new thing' }).length, 1);
   assert.equal(pr({ title: 'feat: FB-123' }).length, 1);
   assert.equal(pr({ subjects: ['wip'] }).length, 1);
 });
 
-test('a Release branch goes only into production', () => {
-  assert.deepEqual(pr({ head: 'release/v1.5.0', base: 'main', title: 'Release v1.5.0', subjects: ['wip'] }), []);
-  assert.equal(pr({ head: 'release/v1.5.0', base: 'develop' }).length, 1);
+test('a Release branch goes only into production, with its version in the title', () => {
+  const release = (over) => pr({ head: 'release/v1.5.0', base: 'main', title: 'Release v1.5.0', subjects: ['chore(release): v1.5.0', 'feat(ui): add thing'], ...over });
+  assert.deepEqual(release({}), []);
+  assert.deepEqual(release({ base: 'develop' }), ["A Release branch is PR'd into main only, not develop."]);
+  assert.deepEqual(release({ title: 'Release v1.5.1' }), ['The PR title must carry the Release version v1.5.0.']);
+  assert.deepEqual(release({ title: 'Release 1.5.0' }), ['The PR title must carry the Release version v1.5.0.']);
+  assert.equal(release({ subjects: ['wip'] }).length, 1);
+});
+
+test('parsePush notes a tags-only push', () => {
+  assert.deepEqual(parsePush(['origin', '--tags']), { remote: 'origin', all: false, tags: true, refspecs: [] });
+  assert.equal(parsePush(['origin', 'v1.6.0']).tags, false);
 });
 
 test('parseMerge reads the PR, repo and flags', () => {
@@ -95,4 +108,60 @@ test('tier overrides name an agent, an alias and a reason', () => {
   assert.deepEqual(checkTierOverrides({ implementer: { model: 'claude-opus-5-5', reason: 'x' } })[0].problems.length, 1);
   assert.deepEqual(checkTierOverrides({ qa: { model: 'sonnet' } })[0].problems, ['a reason is required']);
   assert.deepEqual(checkTierOverrides({ ghost: { model: 'opus', reason: 'x' } })[0].problems, ['no such agent']);
+});
+
+test('readVersion reads JSON files and the [package] section of Cargo.toml', () => {
+  assert.equal(readVersion('package.json', '{"name":"x","version":"1.5.1"}'), '1.5.1');
+  assert.equal(readVersion('src-tauri/Cargo.toml', '[package]\nname = "x"\nversion = "1.5.1"\n\n[dependencies]\nserde = { version = "1" }\n'), '1.5.1');
+  assert.equal(readVersion('Cargo.toml', '[workspace]\nmembers = []\n'), null);
+  assert.equal(readVersion('notes.json', '{'), null);
+});
+
+test('release settings are checked against the project files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-release-'));
+  fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.5.1"}');
+  fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.5.1"\n');
+  const check = (raw, opts) => checkRelease(root, releaseSettings(raw), opts);
+
+  assert.deepEqual(check({ versionFiles: ['package.json', 'Cargo.toml'], assets: { build: ['npm run dist'], files: ['dist/*.zip'] } }), []);
+  assert.deepEqual(check({}), ['release.versionFiles is empty: name the files that carry the version']);
+  assert.deepEqual(check({ versionFiles: ['missing.json'] }), ["missing.json doesn't exist"]);
+  assert.deepEqual(check({ versionFiles: ['package.json'], assets: { files: ['x'] } }), ['release.assets.files is set but release.assets.build is empty: nothing would produce them']);
+
+  fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.4.0"\n');
+  assert.match(check({ versionFiles: ['package.json', 'Cargo.toml'] })[0], /disagree: package.json 1.5.1, Cargo.toml 1.4.0/);
+
+  assert.equal(check({ versionFiles: ['package.json'] }, { client: true }).length, 3);
+  const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
+  assert.deepEqual(check({ versionFiles: ['package.json'], notes }, { client: true }), []);
+  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), ["release.notes.guide docs/release-notes.md doesn't exist"]);
+  fs.mkdirSync(path.join(root, 'docs'));
+  fs.writeFileSync(path.join(root, 'docs/release-notes.md'), '# Deck style\n');
+  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), []);
+});
+
+test('the next version follows the commit types', () => {
+  assert.equal(bumpKind(['fix(ui): x', 'docs: y']), 'patch');
+  assert.equal(bumpKind(['fix: x', 'feat(board): y\n\nbody']), 'minor');
+  assert.equal(bumpKind(['feat(api)!: drop v1']), 'major');
+  assert.equal(bumpKind(['fix: x\n\nBREAKING CHANGE: the CLI renames move']), 'major');
+  assert.equal(nextVersion('1.5.1', 'patch'), '1.5.2');
+  assert.equal(nextVersion('1.5.1', 'minor'), '1.6.0');
+  assert.equal(nextVersion('1.5.1', 'major'), '2.0.0');
+});
+
+test('setVersion edits only the version, keeping the format', () => {
+  const pkg = '{\n  "name": "x",\n  "version": "1.5.1",\n  "dependencies": {\n    "y": "1.5.1"\n  }\n}\n';
+  assert.equal(setVersion('package.json', pkg, '1.6.0'), pkg.replace('"version": "1.5.1"', '"version": "1.6.0"'));
+
+  const lock = '{\n  "name": "x",\n  "version": "1.5.1",\n  "packages": {\n    "": {\n      "name": "x",\n      "version": "1.5.1"\n    },\n    "node_modules/y": {\n      "version": "1.5.1"\n    }\n  }\n}\n';
+  const out = JSON.parse(setVersion('package-lock.json', lock, '1.6.0'));
+  assert.deepEqual([out.version, out.packages[''].version, out.packages['node_modules/y'].version], ['1.6.0', '1.6.0', '1.5.1']);
+
+  const cargo = '[package]\nname = "app"\nversion = "1.5.1"\n\n[dependencies]\nserde = { version = "1.5.1" }\n';
+  assert.equal(setVersion('src-tauri/Cargo.toml', cargo, '1.6.0'), cargo.replace('version = "1.5.1"\n\n', 'version = "1.6.0"\n\n'));
+
+  const cargoLock = '[[package]]\nname = "aaa"\nversion = "1.5.1"\n\n[[package]]\nname = "app"\nversion = "1.5.1"\n';
+  assert.equal(setLockedVersion(cargoLock, 'app', '1.6.0'), '[[package]]\nname = "aaa"\nversion = "1.5.1"\n\n[[package]]\nname = "app"\nversion = "1.6.0"\n');
+  assert.throws(() => setVersion('notes.json', '{}', '1.6.0'), /carries no version/);
 });

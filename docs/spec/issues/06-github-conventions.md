@@ -32,6 +32,7 @@ Resolved 2026-10-20 with Pedro.
 - **A Story depending on another unreleased Story** ships with it.
   - *Amended 2026-10-21 (phase 4, after the FB-98 Run stopped waiting for SF-31 to reach `main`):* its Feature branch is still cut from `main`, then the dependency's Feature branch (never the integration branch) is merged into it, and the dependency is recorded with a depends-on link so the Release pick warns when the two are split. The Task splitter flags dependencies; `run` and `integrate` merge them.
 - **Release** = a `release/vX.Y.Z` branch cut from `main`, into which Pedro's picked Feature branches are merged. For Client projects it is also the User testing branch (betas tagged `vX.Y.Z-beta.N`). It reaches production by a PR into `main` that Pedro approves, then a tag and GitHub Release.
+  - *Amended 2026-10-21 (phase 6, SF-7):* the picks are merged into the Release branch **locally** by `promote`, as the machine account. No PR targets `release/*`, so the only PR of a Release is the one into `main`, whose checks run the build once (each Feature branch already passed its checks into `develop`). When a pick is removed, the Release branch is **re-cut** from `main` (deleted and cut again, after Pedro's go-ahead) while no beta has been tagged; after a beta, the Story's merge is reverted instead. Tag pushes pass the protected-branches hook. The `release/*` row of the table below no longer applies.
 
 **Conventions.**
 
