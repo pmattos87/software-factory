@@ -1,6 +1,6 @@
 ---
 name: promote
-description: Promote a Release - cut its release/vX.Y.Z branch from production with the picked Stories' Feature branches merged in and the version bumped, bring the branch back in line when the pick changes, open its PR into production, and once Pedro merges it tag the version, publish the GitHub Release with its assets, mark the Release released and delete its branches. Use when the user asks to cut, promote, ship or finish a Release, or to release a version to production.
+description: Promote a Release - cut its release/vX.Y.Z branch from production with the picked Stories' Feature branches merged in and the version bumped, bring the branch back in line when the pick changes, on Client projects tag betas for User testing, open its PR into production, and once Pedro merges it tag the version, publish the GitHub Release with its assets, mark the Release released and delete its branches. Use when the user asks to cut, promote, ship or finish a Release, to send a Release to the client or tag a new beta, to say the client approved it, or to release a version to production.
 ---
 
 # Promote: from a picked Release to production
@@ -25,18 +25,22 @@ and `gh-bot` for `GH_TOKEN="$(gh auth token -u pmattos-pr-review-agent)" gh`.
 2. `node check-release.mjs` (with `--client` on a Client project). Any `FAIL` stops here: the settings are needed to bump the version and build the assets.
 3. The working tree must be clean (`git status --porcelain` empty); never stash or discard Pedro's work. Note the current branch, to switch back to at the end. `git fetch origin --prune --tags`.
 4. **Find the Release.** The version the user named, or `release_list` and take the one in `planned` or `user_testing`. Several, or none: ask which one, or send Pedro to the Releases screen to pick one.
-5. `release_show` it, then `story_show` each picked Story. Every pick must be `tested` (`user_testing` on a Client Release in User testing) and record a Feature branch that exists on origin. An empty Release, or a pick that doesn't qualify: stop and say which. A depends-on warning from the pick (a dependency that is neither `done` nor in this Release) is reported, and Pedro decides whether to go on.
+5. `release_show` it, then `story_show` each picked Story. Every pick must be `tested` and record a Feature branch that exists on origin. An empty Release, or a pick that doesn't qualify: stop and say which. On a Release in User testing a pick may also be `user_testing`, or back in `building` → `integrated_tests` → `tested` while a bug found by the client is fixed (section 7). A depends-on warning from the pick (a dependency that is neither `done` nor in this Release) is reported, and Pedro decides whether to go on.
 
 ## 2. Where the Release stands
 
 | Release state | Branch `release/v<version>` on origin | PR into production | Go to |
 |---|---|---|---|
 | `planned` | no | | 3. Cut |
-| `planned` | yes | none | 4. Sync, then 5. PR |
+| `planned` | yes | none | 4. Sync, then 5. PR (Internal) or 7.1 the first beta (Client) |
 | `planned` | yes | open | 4. Sync, then wait for Pedro's merge |
 | `planned` | yes or deleted | merged | 6. Finish |
-| `user_testing` | yes | | Client projects: see section 7 |
+| `user_testing` | yes | none | 4. Sync, then 7.2 the next beta, or 7.3 when Pedro says the client approved it |
+| `user_testing` | yes | open | Wait for Pedro's merge, without syncing: the approved beta is what ships |
+| `user_testing` | yes or deleted | merged | 6. Finish |
 | `released` | | | Nothing to do: say so |
+
+On a Client project the Release reaches production only through User testing, so a `planned` Client Release never has a PR into production.
 
 Find the PR with `gh pr list --head release/v<version> --base <production> --state all --json number,url,state`.
 
@@ -60,7 +64,7 @@ Find the PR with `gh pr list --head release/v<version> --base <production> --sta
 
    with the attribution lines the session asks for.
 
-4. `git push -u origin release/v<version>`, then go on to 5. PR (Internal projects) or 7 (Client projects).
+4. `git push -u origin release/v<version>`, then go on to 5. PR (Internal projects) or 7.1 the first beta (Client projects).
 
 ## 4. Sync after the pick changed
 
@@ -111,7 +115,36 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
 
 ## 7. Client projects: User testing
 
-A Client Release goes through User testing before step 5: the client tests the Release branch, and only then does it go to production. That path (beta tags, the move to `user_testing`, the bug loop back to `building`) isn't built yet: on a Client project, stop after 3. Cut and say so.
+A Client Release goes through User testing before step 5. The client tests a beta built from the Release branch, and only after the client approves does it go to production. Each beta is a tag `v<version>-beta.<n>` on the Release branch, with a GitHub pre-release carrying its assets.
+
+**Tagging a beta** (used by 7.1 and 7.2), with `<n>` one more than the highest `v<version>-beta.*` tag (1 for the first):
+
+1. On the Release branch, in line with origin: `git-bot tag -a v<version>-beta.<n> -m "v<version>-beta.<n>"`, then `git push origin v<version>-beta.<n>`.
+2. Build the assets from that tag, as in step 6.4.
+3. Publish it as a pre-release, with the notes from step 5 under a `## v<version>-beta.<n>` heading:
+
+   ```
+   gh-bot release create v<version>-beta.<n> <asset files> --verify-tag --prerelease --title "v<version>-beta.<n>" --notes-file <notes file>
+   ```
+
+### 7.1 The first beta
+
+After 3. Cut: tag beta 1, then `release_move` the Release to `user_testing`. Its Stories move to `user_testing` with it, and the board assigns them to the project's primary client contact; a refusal (no primary contact, a pick not `tested`) is reported as is. Then hand over: Pedro sends the beta to the client, with the client-facing notes from `factory:release-notes` when he wants them. Stop here: the client tests now.
+
+### 7.2 The next beta, after a fix or a changed pick
+
+The client reports a bug: Pedro files it as a bug Subtask on the Story (`factory:story-status`), which sends the Story back to `building`. The fix is built on the Story's own Feature branch (`factory:run` picks it up), integrated into the integration branch, and tested by Pedro there until the Story is `tested` again. Then this skill runs again.
+
+1. Every pick must be `user_testing` or `tested`. A pick still in `building` or `integrated_tests` holds the next beta: say which, and stop.
+2. Sync (section 4) merges each pick's Feature branch again, which brings in the fix. A pick added during User testing is merged the same way, and a removed pick is reverted (a beta exists, so the branch is never re-cut).
+3. When the Release branch changed since the last beta tag (`git rev-list v<version>-beta.<last>..origin/release/v<version>` is not empty), tag the next beta. When it didn't, there is nothing new for the client: say so.
+4. `story_move` each pick in `tested` to `user_testing`: the fixed Stories and the ones added during User testing go back to the client.
+
+### 7.3 The client approved it
+
+Only when Pedro says, in this request, that the client approved the Release. The approved build is the last beta: the Release branch must not have changed since its tag (otherwise tag a new beta first, and the client tests that one). Every pick must be `user_testing`. Then go to 5. PR, and 6. Finish once Pedro merges it: `release_move` takes the Release from `user_testing` to `released`, and its Stories to `done`.
+
+The final tag `v<version>` goes on the merge commit in production, as on an Internal project. The beta tags and pre-releases stay.
 
 ## 8. Report
 
