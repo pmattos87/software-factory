@@ -1,6 +1,6 @@
 ---
 name: integrate
-description: Integrate a built Story - commit its work on its Feature branch, open the PR into the integration branch, merge it once the PR checks are green, and move the Story to integrated_tests. Use when a Story's Subtasks are all done and its work should go to the integration branch, or when the user asks to ship, open the PR, or integrate a Story.
+description: Integrate a built Story - commit its work on its Feature branch, make sure Codex's Review passed on that commit, open the PR into the integration branch, merge it once the PR checks are green, and move the Story to integrated_tests. Use when a Story's Subtasks are all done and its work should go to the integration branch, or when the user asks to ship, open the PR, or integrate a Story.
 ---
 
 # Integrate: from a built Story to the integration branch
@@ -36,18 +36,24 @@ git -c user.name=pmattos-pr-review-agent -c user.email=345377693+pmattos-pr-revi
 
 Docs that track this work (README, changelog, the project's docs) are updated in these commits, never in a follow-up PR. The secret-scan hook checks every commit; a block means a secret is in the diff. Remove it, don't bypass the hook.
 
-## 4. Push and open the PR
+## 4. Review
+
+The PR opens only on a commit Codex passed. `story_show` the Story: when its `review` is `passed` on `git rev-parse HEAD`, go on. Otherwise run the `factory:review` skill now; this is the hand-driven path, and any commit since the last Review needs a new round.
+
+Anything but a pass on HEAD stops Integrate here, with the Story in `building`: a failed round's findings are reported for fixing, and Codex being unavailable means Review waits. Never open the PR around it: the PR-gate hook refuses a PR whose head has no passed Review anyway.
+
+## 5. Push and open the PR
 
 ```
 git push -u origin <branch>
 GH_TOKEN="$(gh auth token -u pmattos-pr-review-agent)" gh pr create --base <integration> --head <branch> --title "<KEY>: <Story title>" --body-file <file>
 ```
 
-The body summarizes the change set, names the Story key, and ends with the PR attribution the session asks for. The PR-gate hook runs the Gates and the conventions before the PR opens. A block lists what to fix: fix it, commit, and try again. Don't ask for confirmation before opening the PR: integration is what this Stage is for.
+The body summarizes the change set, names the Story key, links the passing Review comment, and ends with the PR attribution the session asks for. The PR-gate hook checks the Review, the Gates and the conventions before the PR opens. A block lists what to fix: fix it, commit, review the new head (step 4), and try again. Don't ask for confirmation before opening the PR: integration is what this Stage is for.
 
 Record the PR: `pr_open` with its URL and `target` = the integration branch.
 
-## 5. Wait for the PR checks, then merge
+## 6. Wait for the PR checks, then merge
 
 ```
 gh pr checks <url> --watch --fail-fast
@@ -64,13 +70,12 @@ GH_TOKEN="$(gh auth token -u pmattos-pr-review-agent)" gh pr merge <url> --merge
 
 Never `--squash`, `--rebase` or `--delete-branch`: the Feature branch lives on until its Release reaches production, and the merge-guard hook refuses them.
 
-## 6. Hand over to Pedro
+## 7. Hand over to Pedro
 
 `pr_set_state` the PR as `merged`, then `story_move` the Story to `integrated_tests`. Report the PR link, the commits, and that the Story now waits for Pedro's test on the integration branch.
 
-## Not here yet
+## Not here
 
-- **Review** (phase 5): Codex's Review of the whole Story diff will come before step 4, and the PR gate will require it.
 - **Release and Production PRs** belong to `factory:promote`, never to this one.
 
 ## Guardrails

@@ -1,6 +1,6 @@
 ---
 name: run
-description: Start or resume a Story's Run - the Orchestrator moves a ready Story to building, hands each Subtask to the agent its plan names, has QA Verify it (stopping the Run for Pedro after 2 failed rounds), commits it, runs Docs once, then integrates. Use when the user asks to run, build or start a Story with agents, or to resume or restart a stopped Run.
+description: Start or resume a Story's Run - the Orchestrator moves a ready Story to building, hands each Subtask to the agent its plan names, has QA Verify it (stopping the Run for Pedro after 2 failed rounds), commits it, runs Docs once, has Codex Review the whole Story, then integrates. Use when the user asks to run, build or start a Story with agents, or to resume or restart a stopped Run.
 ---
 
 # Run: the Orchestrator
@@ -71,11 +71,11 @@ In plan order, for each Subtask not `done` or `canceled`:
 1. `subtask_move` it to `in_progress` (if it isn't already).
 2. `subtask_handoff` with the builder and its model.
 3. **Build.** Delegate to the builder (`factory:implementer`, or the Specialist by name) with the model from step 2. Hand it the Story key, the full brief, the Subtask's key, title, slice (from its description) and "done when" items (from the plan). A Specialist's handoff also carries the Implementer's rules, since its file doesn't repeat them: only this Subtask, tests with the code, run the Gates, never commit, push, switch branches or touch the board, never weaken a test or a Gate, and end with the Implementer's `## Result` block.
-4. **Blocked**: a builder that returns `status: blocked` needs a decision from Pedro. `run_stop` with `<KEY>: <what it is blocked by>` and go to step 7.
+4. **Blocked**: a builder that returns `status: blocked` needs a decision from Pedro. `run_stop` with `<KEY>: <what it is blocked by>` and go to step 8.
 5. **Verify.** Delegate to `factory:qa` with the Story key and brief, the Subtask and its "done when" items, the builder's result block, and the round number. It returns a `## Verify` block. Record it: `subtask_verify` with `passed` and its `reason`.
 6. **Pass**: commit the Subtask (below), `subtask_move` it to `done`, and go on to the next one.
    **Fail, round 1**: hand the same Subtask back to the builder: a new `subtask_handoff`, then build again with QA's findings attached, then Verify as round 2.
-   **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 7. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
+   **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 8. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
 
 A round is one build plus one Verify. Rounds count from 1 for each Subtask, and again from 1 after a restart. On a resumed Run, count them from `story_trail`: the Subtask's Verify results since the Run's last restart (or its start), so a new session never grants a third round.
 
@@ -91,20 +91,22 @@ One commit per Subtask, a conventional subject (`type(scope): description`, impe
 
 After the last Subtask passes, delegate once to `factory:docs` with the Story key, the brief and the Story's diff against production. Commit what it changed as one `docs:` commit, the same way. When it changed nothing, say so and go on. Open questions it reports go in your final report, not into the docs.
 
-## 6. Integrate
+## 6. Review
 
-Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or conflict.
+Run the `factory:review` skill on the Story. Codex reviews the whole Story diff; blocking findings come back as a bug Subtask, which you build, Verify and commit as in step 4, then Codex reviews again. It stops the Run itself after 2 failed rounds or when Codex is unavailable: then go to step 8. Go on only with a passed Review on the current head.
 
-Review (phase 5) will slot in between Docs and Integrate.
+## 7. Integrate
 
-## 7. Report
+Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or conflict. Integrate commits nothing new in a Run, so the Review from step 6 still covers its head.
 
-End with the Story key and where it stands, then one line per Subtask: key, builder, rounds, verdict. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
+## 8. Report
+
+End with the Story key and where it stands, then one line per Subtask: key, builder, rounds, verdict, then one line per Review round: verdict and comment link, and Codex's suggestions for Pedro to file or drop. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
 
 ## Guardrails
 
 - **Never edit code, tests or docs yourself**, not even a one-line fix between rounds. Your writes are the board, commits and the branch.
-- Never weaken a Gate, skip Verify, or pass a Subtask QA failed.
+- Never weaken a Gate, skip Verify or Review, or pass a Subtask QA failed.
 - Never force-push, rewrite a pushed branch, or commit on the integration or production branch (the hooks block it anyway).
 - A refused board call stops the Run step it belongs to: report it, never work around it (see `factory:story-status`).
 - Windows: keep any scripted output ASCII-only.
