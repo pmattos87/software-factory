@@ -26,6 +26,13 @@ export function checkPullRequest({ boardKey, branches, head, base, title, subjec
     if (base !== branches.production) {
       problems.push(`A Release branch is PR'd into ${branches.production} only, not ${base}.`);
     }
+    const version = head.slice('release/'.length);
+    if (!new RegExp(`(^|\\s)${version.replace(/\./g, '\\.')}\\b`).test(title ?? '')) {
+      problems.push(`The PR title must carry the Release version ${version}.`);
+    }
+    for (const s of subjects) {
+      if (!COMMIT_SUBJECT.test(s)) problems.push(`Commit "${s}" isn't a conventional commit (type(scope): description).`);
+    }
     return problems;
   }
 
@@ -36,9 +43,10 @@ export function checkPullRequest({ boardKey, branches, head, base, title, subjec
         `(type one of ${TYPES.join(', ')}; slug lowercase words joined by "-").`,
     );
   }
-  if (base !== branches.integration && !isReleaseBranch(base)) {
+  if (base !== branches.integration) {
     problems.push(
-      `A Feature branch is PR'd into ${branches.integration} or a release/vX.Y.Z branch, not ${base || '(no base given)'}.`,
+      `A Feature branch is PR'd into ${branches.integration} only, not ${base || '(no base given)'}. ` +
+        'It reaches a Release when promote merges it into the release/vX.Y.Z branch.',
     );
   }
   if (feature && !new RegExp(`\\b${feature.story}\\b`).test(title ?? '')) {
