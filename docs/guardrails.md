@@ -45,6 +45,13 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
   },
   "agents": {
     "implementer": { "model": "opus", "reason": "Runs kept hitting the 2-round stop" }
+  },
+  "release": {
+    "versionFiles": ["package.json", "package-lock.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml"],
+    "assets": {
+      "build": ["npx tauri build"],
+      "files": ["src-tauri/target/release/bundle/nsis/*-setup.exe", "src-tauri/target/release/bundle/msi/*.msi"]
+    }
   }
 }
 ```
@@ -60,6 +67,12 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `ci.apt` | Ubuntu packages Actions installs before the gates and build. |
 | `ci.install` | Commands Actions runs before the gates and build (dependency install, CI-only prep). |
 | `agents` | Optional tier overrides for a Role agent or a Specialist: `model` as an alias (`opus`, `sonnet`, `haiku`) and the `reason`, both required. Used by `split` and `run`; checked by `check-specialists.mjs` ([Specialists](specialists.md)). |
+| `release.versionFiles` | Files that carry the project's version, all bumped together when a Release is cut: JSON files with a top-level `version` (`package.json`, `package-lock.json`, `tauri.conf.json`, `manifest.json`) and `Cargo.toml` (its `[package]` version). |
+| `release.assets.build` | Commands that build the files attached to the GitHub Release (installers, zips). Run locally, on Pedro's machine: Actions is Linux-only. |
+| `release.assets.files` | Glob patterns of the files those commands produce, relative to the repo root. |
+| `release.notes` | Client projects only: `client` (who reads the notes), `language`, and `stagingUrl` (where screenshots are taken), for `release-notes`. |
+
+`node <plugin>/scripts/check-release.mjs [--client]`, run from the repo root, checks the `release` key: every version file exists and carries the same version, assets have a build, and a Client project has its notes settings.
 
 ## Actions
 
