@@ -38,7 +38,7 @@ function gate(dir, opts) {
   if (problems.length) block('pr-gate', `The PR breaks the conventions:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
 
   // A Release branch carries Stories already reviewed on their own branches.
-  if (!isReleaseBranch(head)) requireReview(parseFeatureBranch(head, config.boardKey).story, git(root, 'rev-parse', 'HEAD'));
+  if (!isReleaseBranch(head)) requireReview(parseFeatureBranch(head, config.boardKey).story, reviewedHead(root, baseRef));
 
   for (const cmd of config.gates) {
     const r = spawnSync(cmd, { cwd: root, shell: true, encoding: 'utf8' });
@@ -47,6 +47,17 @@ function gate(dir, opts) {
       block('pr-gate', `Gate failed: \`${cmd}\` (exit ${r.status}). Fix it before opening the PR.\n${output}`);
     }
   }
+}
+
+// The commit the Story's Review must cover. A resolution branch's head merges
+// the Feature branch into the integration branch (first parent already on it)
+// to resolve a conflict; the Review covers the Feature branch's side, and the
+// gates cover the resolved result.
+function reviewedHead(root, baseRef) {
+  const head = git(root, 'rev-parse', 'HEAD');
+  const [first, second] = git(root, 'rev-parse', 'HEAD^1', 'HEAD^2')?.split('\n') ?? [];
+  if (second && baseRef && git(root, 'merge-base', '--is-ancestor', first, baseRef) !== null) return second;
+  return head;
 }
 
 function requireReview(key, head) {
