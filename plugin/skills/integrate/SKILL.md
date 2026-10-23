@@ -44,6 +44,8 @@ Anything but a pass on HEAD stops Integrate here, with the Story in `building`: 
 
 ## 5. Push and open the PR
 
+First check that the branch merges cleanly: `git fetch origin`, then `git merge-tree --write-tree --name-only origin/<integration> HEAD`. Exit 1 means a conflict and lists the files: push the branch, then go to [Resolve a conflict](#resolve-a-conflict-with-the-integration-branch) instead of opening the PR here.
+
 ```
 git push -u origin <branch>
 GH_TOKEN="$(gh auth token -u pmattos-pr-review-agent)" gh pr create --base <integration> --head <branch> --title "<KEY>: <Story title>" --body-file <file>
@@ -61,7 +63,7 @@ gh pr checks <url> --watch --fail-fast
 
 - **"no checks reported"** right after opening: the run hasn't registered yet. Wait half a minute and watch again.
 - **A check fails**: stop. Report the failing check and its log (`gh run view --log-failed`). The Story stays in `building`; once it's fixed, push again and repeat this step.
-- **The PR conflicts with the integration branch**: stop and report the conflicting files. Don't merge the integration branch into the Feature branch (see step 2). Pedro decides how it's resolved.
+- **The PR conflicts with the integration branch** (another PR merged while this one waited): [resolve it](#resolve-a-conflict-with-the-integration-branch). Never with GitHub's "Resolve conflicts" button: it merges the integration branch into the Feature branch.
 - **All green**: merge as the machine account, with a merge commit, keeping the branch:
 
 ```
@@ -72,7 +74,30 @@ Never `--squash`, `--rebase` or `--delete-branch`: the Feature branch lives on u
 
 ## 7. Hand over to Pedro
 
-`pr_set_state` the PR as `merged`, then `story_move` the Story to `integrated_tests`. Report the PR link, the commits, and that the Story now waits for Pedro's test on the integration branch.
+`pr_set_state` the PR as `merged`, then `story_move` the Story to `integrated_tests`. Report the PR link, the commits, any conflict resolved and how, and that the Story now waits for Pedro's test on the integration branch.
+
+## Resolve a conflict with the integration branch
+
+Another Story merged into the integration branch since this one was cut can touch the same lines; a shared changelog is the usual case. Resolve it on a **resolution branch** cut from the integration branch, never on the Feature branch: that one must still carry only this Story when promote merges it into a Release (step 2).
+
+1. Cut it and merge the Feature branch in, as the machine account:
+
+   ```
+   git switch -c <branch>-merge origin/<integration>
+   git -c user.name=pmattos-pr-review-agent -c user.email=345377693+pmattos-pr-review-agent@users.noreply.github.com merge --no-ff <branch> -m "chore: merge <branch> into <integration>"
+   ```
+
+2. Resolve each conflicted file (`git diff --name-only --diff-filter=U`) so both sides' intent survives: two Stories each adding a changelog entry keep both entries, in the file's order. When a hunk isn't clear from its text, read what the other side's Story changed (`git log origin/<integration> -- <file>`). Touch nothing outside the conflicted hunks: Review doesn't cover the merge commit, only the Gates do.
+
+   Stop and report when a hunk can only be resolved by picking one side's behavior over the other's, or when you aren't sure what a side meant: `git merge --abort`, switch back to the Feature branch, delete the resolution branch, and name the files and the two Stories. Pedro decides those.
+
+3. `git add` the files, make sure no conflict markers are left (`git diff --cached --check`), and conclude the merge as the machine account with `commit --no-edit`.
+
+4. Run the Gates on it. A failure means the resolution is wrong: fix it and amend the merge commit (it isn't pushed yet), or stop and report as in 2.
+
+5. Push the resolution branch. If a PR from the Feature branch is open, close it as the machine account (`gh pr close <url> --comment "Superseded by <new PR>: conflict with <integration> resolved there."`) and `pr_set_state` it `closed`. Open the new PR from `<branch>-merge` as in step 5, with the same title and a body that also lists each resolved file and how; `pr_open` it, and go on to step 6 with it. The PR-gate hook accepts it on the Feature branch's passed Review: its head merges that reviewed commit into the integration branch.
+
+6. Once it's merged (step 7), delete the resolution branch: `git push origin --delete <branch>-merge` and `git branch -D <branch>-merge`. It carries the integration branch, so it must never become anyone's Feature branch; never `story_set_branch` it.
 
 ## Not here
 
