@@ -11,6 +11,8 @@ import { checkSpecialist, checkTierOverrides, ROLE_AGENTS } from '../plugin/scri
 import { releaseSettings, readVersion, checkRelease } from '../plugin/scripts/lib/release.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
+import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
+import { git } from '../plugin/scripts/lib/git.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -227,4 +229,59 @@ test('a verdict must be coherent and on the reviewed head', () => {
   assert.match(checkVerdict({ ...ok, blocking: [{}] }, head).join(), /passed with 1/);
   assert.match(checkVerdict({ ...ok, verdict: 'failed' }, head).join(), /failed with 0/);
   assert.deepEqual(checkVerdict(null, head), ['no verdict JSON']);
+});
+
+test('mergedBranch reads PR merges and plain merges', () => {
+  assert.equal(mergedBranch('Merge pull request #85 from pmattos87/feat/FB-124-live-refresh'), 'feat/FB-124-live-refresh');
+  assert.equal(mergedBranch("Merge branch 'fix/FB-9-x' into develop"), 'fix/FB-9-x');
+  assert.equal(mergedBranch('feat(ui): not a merge'), null);
+});
+
+test('parseLog reads commits and their files', () => {
+  assert.deepEqual(parseLog('\0abc1234 feat: one\n\na.ts\nb/c.ts\n\0def5678 fix: two\n\n'), [
+    { hash: 'abc1234', subject: 'feat: one', files: ['a.ts', 'b/c.ts'] },
+    { hash: 'def5678', subject: 'fix: two', files: [] },
+  ]);
+});
+
+test('unreleased work is grouped by Story and kept only where it overlaps', () => {
+  const entries = [
+    { hash: 'm1', subject: 'Merge pull request #1 from o/feat/FB-1-board', commits: [{ hash: 'a1', subject: 'feat: a', files: ['src/a.ts'] }] },
+    { hash: 'm2', subject: 'Merge pull request #2 from o/feat/FB-1-board-merge', commits: [{ hash: 'a2', subject: 'fix: a', files: ['src/b.ts'] }] },
+    { hash: 'm3', subject: 'Merge pull request #3 from o/feat/FB-2-other', commits: [{ hash: 'b1', subject: 'feat: b', files: ['src/z.ts'] }] },
+    { hash: 'c1', subject: 'chore: direct', commits: [{ hash: 'c1', subject: 'chore: direct', files: ['src/a.ts'] }] },
+  ];
+  const found = unreleasedOverlap(entries, ['src\\a.ts', './src/b.ts'], ['FB']);
+  assert.deepEqual(found.map((g) => [g.story, g.files, g.commits.map((c) => c.hash)]), [
+    ['FB-1', ['src/a.ts', 'src/b.ts'], ['a1', 'a2']],
+    [null, ['src/a.ts'], ['c1']],
+  ]);
+  assert.equal(found[1].hash, 'c1');
+  assert.deepEqual(unreleasedOverlap(entries, ['src/none.ts'], ['FB']), []);
+});
+
+test('readUnreleased reads only what the integration branch has that production lacks', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-unreleased-'));
+  const commit = (file, msg) => {
+    fs.writeFileSync(path.join(dir, file), msg);
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', msg);
+  };
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  commit('base.txt', 'chore: init');
+  git(dir, 'switch', '-q', '-c', 'develop');
+  git(dir, 'switch', '-q', '-c', 'feat/FB-7-thing', 'main');
+  commit('thing.txt', 'feat: thing');
+  git(dir, 'switch', '-q', 'develop');
+  git(dir, 'merge', '-q', '--no-ff', 'feat/FB-7-thing', '-m', 'Merge pull request #7 from o/feat/FB-7-thing');
+  commit('direct.txt', 'chore: direct');
+  git(dir, 'update-ref', 'refs/remotes/origin/main', 'main');
+  git(dir, 'update-ref', 'refs/remotes/origin/develop', 'develop');
+
+  const entries = readUnreleased(dir, { production: 'main', integration: 'develop' });
+  const found = unreleasedOverlap(entries, ['thing.txt', 'direct.txt', 'base.txt'], 'FB');
+  assert.deepEqual(found.map((g) => [g.story, g.files]), [[null, ['direct.txt']], ['FB-7', ['thing.txt']]]);
+  assert.equal(readUnreleased(dir, { production: 'main', integration: 'nope' }), null);
 });
