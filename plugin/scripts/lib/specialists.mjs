@@ -6,7 +6,7 @@ import path from 'node:path';
 
 export const AGENTS_DIR = '.claude/agents';
 
-export const ROLE_AGENTS = ['task-splitter', 'implementer', 'qa', 'docs'];
+export const ROLE_AGENTS = ['task-splitter', 'implementer', 'qa', 'docs', 'simplify'];
 const MODELS = ['opus', 'sonnet', 'haiku'];
 const SECTIONS = ['scope', 'definition of done'];
 

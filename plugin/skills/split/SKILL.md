@@ -32,7 +32,16 @@ Each `ok` line is an eligible Specialist. Read each one's `description` from `.c
 
 Delegate to the `factory:task-splitter` agent, on opus unless `factory.json` overrides it (`agents.task-splitter.model`; see `factory:run`). Hand it the Story key, the full brief, and the eligible builders with their descriptions. It reads the repo and returns a `## Split`, `## Depends on`, `## Brief changes` and `## Open questions` block.
 
-Check its result before showing it: every Subtask names an eligible builder, has points, a risk line and at least one "done when" item. Send it back with what is missing rather than patching it yourself.
+Check its result before showing it: every Subtask names an eligible builder, has points, a risk line, a `files` line and at least one "done when" item. Send it back with what is missing rather than patching it yourself.
+
+**Then check the unreleased work.** The splitter finds dependencies by reading; this checks its reading. From the repo root, with every file the Subtasks list:
+
+```
+git fetch origin
+node "<this skill's base directory>/../../scripts/check-unreleased.mjs" <file...>
+```
+
+Each line names a Story (or a commit made outside a Feature branch) on the integration branch, not yet in production, that touched those files, with its commits. Every one not already under *Depends on* becomes an open question for Pedro: add it as a dependency, or "not needed". Exit 2 means the branches couldn't be read: say so, as an open question, rather than skipping the check. Run it again when Pedro's edits change the Subtasks' files.
 
 ## 4. Pedro approves
 
