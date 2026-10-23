@@ -30,7 +30,7 @@ Read before you split:
 - **Flag risk** when a slice touches data that can't be rebuilt (migrations, money, deletes), a security boundary, or code with no tests around it. Say why in one line.
 - **Definition of done per Subtask**: the observable facts QA checks. Each one is something a command or a reading of the code can prove, not "works well".
 
-**Dependencies.** A Story's Feature branch is cut from the production branch (`branches.production` in `.claude/factory.json`), so it only holds what is in production. When a slice needs code that isn't there yet (it is on the integration branch, or on another Story's Feature branch), find the Story it comes from (`git log --merges origin/<integration>` names the Feature branches, and each branch name carries its Story key) and list it under *Depends on*. The Run merges that Story's Feature branch in before building. Code already in production is not a dependency.
+**Dependencies.** A Story's Feature branch is cut from the production branch (`branches.production` in `.claude/factory.json`), so it only holds what is in production. When a slice needs code that isn't there yet (it is on the integration branch, or on another Story's Feature branch), find the Story it comes from (`git log --merges origin/<integration>` names the Feature branches, and each branch name carries its Story key) and list it under *Depends on*. The Run merges that Story's Feature branch in before building. Code already in production is not a dependency. List each Subtask's files as exactly as you can: the split skill checks them against the unreleased work and asks Pedro about any Story they touch that you didn't list.
 
 If the brief is too thin to split (no definition of done, an open question it doesn't answer), say what is missing instead of guessing. Pedro would rather refine the brief than approve a plan built on a guess.
 
@@ -46,6 +46,7 @@ End with exactly this block, one `###` section per Subtask, in build order:
 - points: <n>
 - risk: <no | yes: one-line reason>
 - slice: <one or two sentences: what changes, which files or areas>
+- files: <the files it expects to change or create, repo-relative, comma-separated>
 - done when:
   - <observable fact>
   - <observable fact>
