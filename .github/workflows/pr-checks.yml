@@ -98,8 +98,7 @@ jobs:
         with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts }
       - name: System packages
         if: needs.plan.outputs.apt != ''
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
-        with: { packages: '${{ needs.plan.outputs.apt }}' }
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ${{ needs.plan.outputs.apt }}
       - uses: actions/setup-node@v4
         if: needs.plan.outputs.node != ''
         with:
