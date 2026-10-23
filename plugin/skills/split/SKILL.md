@@ -45,7 +45,7 @@ Each line names a Story (or a commit made outside a Feature branch) on the integ
 
 ## 4. Pedro approves
 
-Show the split as a table (order, title, agent, points, risk), then each Subtask's slice and "done when", then the dependencies, the brief changes and the open questions.
+Show the split as a table (order, title, agent, points, risk) with the Story's total under it: the sum of its Subtasks' points, which Flowboard keeps as the Story's own points once they are written (bug and canceled Subtasks don't count). A total above 13 gets a warning that the Story may be two Stories; it is a warning only, and Pedro decides. Then each Subtask's slice and "done when", then the dependencies, the brief changes and the open questions.
 
 A dependency means the Run will merge that Story's Feature branch into this one, and the two will have to be released together. Say so when you show it: Pedro may prefer to wait until the other Story is in production.
 
@@ -77,7 +77,7 @@ In this order, so the plan can name the keys:
 
 ## 6. Hand over
 
-Read back with `story_show` and report each Subtask key with its agent and points. Then ask Pedro whether the plan is approved to move the Story to `ready`. On a yes, `story_move` it there and remind him it needs a sprint (`story_set_sprint`) before `factory:run` can start.
+Read back with `story_show` and report each Subtask key with its agent and points, and the Story's `story_points`: it should equal the total Pedro approved. A Story at 0 can't move to `ready`, so a 0 here means the Subtasks weren't written; say so rather than moving it. Then ask Pedro whether the plan is approved to move the Story to `ready`. On a yes, `story_move` it there and remind him it needs a sprint (`story_set_sprint`) before `factory:run` can start.
 
 ## Guardrails
 
