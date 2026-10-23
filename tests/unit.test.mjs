@@ -7,7 +7,7 @@ import { splitCommands, invocations } from '../plugin/scripts/lib/shell.mjs';
 import { parsePush } from '../plugin/scripts/lib/push.mjs';
 import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scripts/lib/conventions.mjs';
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
-import { checkSpecialist, checkTierOverrides } from '../plugin/scripts/lib/specialists.mjs';
+import { checkSpecialist, checkTierOverrides, ROLE_AGENTS } from '../plugin/scripts/lib/specialists.mjs';
 import { releaseSettings, readVersion, checkRelease } from '../plugin/scripts/lib/release.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
@@ -109,6 +109,13 @@ test('tier overrides name an agent, an alias and a reason', () => {
   assert.deepEqual(checkTierOverrides({ implementer: { model: 'claude-opus-5-5', reason: 'x' } })[0].problems.length, 1);
   assert.deepEqual(checkTierOverrides({ qa: { model: 'sonnet' } })[0].problems, ['a reason is required']);
   assert.deepEqual(checkTierOverrides({ ghost: { model: 'opus', reason: 'x' } })[0].problems, ['no such agent']);
+  assert.deepEqual(checkTierOverrides({ simplify: { model: 'opus', reason: 'x' } }), []);
+});
+
+test('the Role agents list matches the agents the plugin ships', () => {
+  const shipped = fs.readdirSync(new URL('../plugin/agents/', import.meta.url)).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3));
+  assert.deepEqual([...ROLE_AGENTS].sort(), shipped.sort());
+  assert.equal(checkSpecialist('/a/simplify.md', '---\nname: simplify\ndescription: x\nmodel: sonnet\n---\n## Scope\n## Definition of done\n').length, 1);
 });
 
 test('readVersion reads JSON files and the [package] section of Cargo.toml', () => {

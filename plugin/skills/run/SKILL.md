@@ -1,6 +1,6 @@
 ---
 name: run
-description: Start or resume a Story's Run - the Orchestrator moves a ready Story to building, hands each Subtask to the agent its plan names, has QA Verify it (stopping the Run for Pedro after 2 failed rounds), commits it, runs Docs once, has Codex Review the whole Story, then integrates. Use when the user asks to run, build or start a Story with agents, or to resume or restart a stopped Run.
+description: Start or resume a Story's Run - the Orchestrator moves a ready Story to building, hands each Subtask to the agent its plan names, has QA Verify it (stopping the Run for Pedro after 2 failed rounds), commits it, has the code simplified once, runs Docs once, has Codex Review the whole Story, then integrates. Use when the user asks to run, build or start a Story with agents, or to resume or restart a stopped Run.
 ---
 
 # Run: the Orchestrator
@@ -20,7 +20,7 @@ Board writes go through the `factory:story-status` skill's interface (the `flowb
 - **Run stopped**: show the stop reason from `story_trail`. Restart only when Pedro has said so in this request (he decided what to change), with `run_restart`; otherwise stop and tell him how: resolve the reason, then ask for the Run again with "restart".
 - Anywhere else, stop and say where it is.
 
-Then check the plan: every open Subtask has a `### <KEY> <title>` entry under `## Plan` with an `agent:` and at least one "done when" item. A Subtask with no entry is unplanned: stop and send Pedro to `factory:split`.
+Then check the plan: every open Subtask has a `### <KEY> <title>` entry under `## Plan` with an `agent:` and at least one "done when" item. A Subtask with no entry is unplanned: stop and send Pedro to `factory:split`. The one exception is a `Simplify` Subtask whose entry is missing (the session ended between filing it and writing its entry): append the entry as in step 5 and go on.
 
 ## 2. Check the builders and the tiers
 
@@ -30,7 +30,7 @@ node "<this skill's base directory>/../../scripts/check-specialists.mjs" --run <
 
 The base directory is the one shown when this skill loaded; the script ships in the same plugin. Run it from the project's repo root.
 
-Leave `implementer` out of the names: it is a Role agent. Any `FAIL` line stops the Run before it starts: a Specialist that breaks the contract can't be handed work. The same command also checks the `agents` tier overrides in `factory.json`; with no Specialists named (every Subtask goes to `implementer`) it checks only those. Never drop `--run`: without it the script checks every agent in the project, and a Specialist this Run doesn't use would stop it.
+Leave `implementer` and `simplify` out of the names: they are Role agents. Any `FAIL` line stops the Run before it starts: a Specialist that breaks the contract can't be handed work. The same command also checks the `agents` tier overrides in `factory.json`; with no Specialists named (every Subtask goes to `implementer`) it checks only those. Never drop `--run`: without it the script checks every agent in the project, and a Specialist this Run doesn't use would stop it.
 
 **Each agent's model** is its default tier, unless `factory.json` overrides it:
 
@@ -39,6 +39,7 @@ Leave `implementer` out of the names: it is a Role agent. Any `FAIL` line stops 
 | `implementer` | sonnet |
 | `qa` | opus |
 | `docs` | sonnet |
+| `simplify` | sonnet |
 | a Specialist | the `model` in its frontmatter |
 
 ```json
@@ -66,16 +67,16 @@ On a new Run, `story_move` the Story to `building` now.
 
 ## 4. Build each Subtask
 
-In plan order, for each Subtask not `done` or `canceled`:
+In plan order, for each Subtask not `done` or `canceled` except the `Simplify` Subtask, which step 5 builds:
 
 1. `subtask_move` it to `in_progress` (if it isn't already).
 2. `subtask_handoff` with the builder and its model.
 3. **Build.** Delegate to the builder (`factory:implementer`, or the Specialist by name) with the model from step 2. Hand it the Story key, the full brief, the Subtask's key, title, slice (from its description) and "done when" items (from the plan). A Specialist's handoff also carries the Implementer's rules, since its file doesn't repeat them: only this Subtask, tests with the code, run the Gates, never commit, push, switch branches or touch the board, never weaken a test or a Gate, and end with the Implementer's `## Result` block.
-4. **Blocked**: a builder that returns `status: blocked` needs a decision from Pedro. `run_stop` with `<KEY>: <what it is blocked by>` and go to step 8.
+4. **Blocked**: a builder that returns `status: blocked` needs a decision from Pedro. `run_stop` with `<KEY>: <what it is blocked by>` and go to step 9.
 5. **Verify.** Delegate to `factory:qa` with the Story key and brief, the Subtask and its "done when" items, the builder's result block, and the round number. It returns a `## Verify` block. Record it: `subtask_verify` with `passed` and its `reason`.
 6. **Pass**: commit the Subtask (below), `subtask_move` it to `done`, and go on to the next one.
    **Fail, round 1**: hand the same Subtask back to the builder: a new `subtask_handoff`, then build again with QA's findings attached, then Verify as round 2.
-   **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 8. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
+   **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 9. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
 
 A round is one build plus one Verify. Rounds count from 1 for each Subtask, and again from 1 after a restart. On a resumed Run, count them from `story_trail`: the Subtask's Verify results since the Run's last restart (or its start), so a new session never grants a third round.
 
@@ -87,19 +88,40 @@ git -c user.name=pmattos-pr-review-agent -c user.email=345377693+pmattos-pr-revi
 
 One commit per Subtask, a conventional subject (`type(scope): description`, imperative, no Story key, following any prefix rules in the project's `CLAUDE.md`) with a body naming the Subtask key, and the attribution lines the session asks for. The secret-scan hook checks it; a block stops the Run (`run_stop` with the finding), since removing a secret is a change to the work.
 
-## 5. Docs
+## 5. Simplify
 
-After the last Subtask passes, delegate once to `factory:docs` with the Story key, the brief and the Story's diff against production. Commit what it changed as one commit, the same way, with the prefix the project's `CLAUDE.md` gives for docs changes (`docs:` when it says nothing). When it changed nothing, say so and go on. Open questions it reports go in your final report, not into the docs.
+After the last Subtask passes, the code the Story wrote gets one cleanup pass, before Docs and Review, so Codex reviews the simplified code. It is a Subtask like any other, built by the `simplify` Role agent:
 
-## 6. Review
+1. **File it**, unless the Story already has a Subtask titled `Simplify` (a resumed Run): `subtask_create` with title `Simplify`, `story_points` 0 (it isn't part of the refined estimate), no risk, and the description `agent: simplify`. Then `story_edit` the Story's brief with its entry appended to `## Plan` (send the whole brief):
 
-Run the `factory:review` skill on the Story. Codex reviews the whole Story diff; blocking findings come back as a bug Subtask, which you build, Verify and commit as in step 4, then Codex reviews again. It stops the Run itself after 2 failed rounds or when Codex is unavailable: then go to step 8. Go on only with a passed Review on the current head.
+   ```
+   ### <KEY> Simplify
+   - agent: simplify
+   - done when:
+     - The Gates pass.
+     - No behavior changed: same inputs, outputs, errors and side effects.
+     - No test was weakened or edited to fit the simplified code.
+     - Only code this Story added or changed was touched.
+     - Out-of-scope findings are listed in the result's noticed line, not fixed.
+   ```
+2. **Build it as in step 4**, items 1 to 6: handoff, build, Verify, its own 2 rounds. The handoff to `factory:simplify` also carries the Story's diff against production.
+3. **Nothing to simplify**: when the builder changed no files and QA passes it, `subtask_move` it to `done` with nothing to commit, and say so in the report.
 
-## 7. Integrate
+A `done` Simplify Subtask is never filed or built again; go on to Docs.
 
-Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or a conflict it couldn't resolve. Integrate commits nothing new on the Feature branch in a Run, so the Review from step 6 still covers its head; a conflict it resolves goes on a resolution branch, which that Review covers too.
+## 6. Docs
 
-## 8. Report
+After Simplify is done, delegate once to `factory:docs` with the Story key, the brief and the Story's diff against production. Commit what it changed as one commit, the same way, with the prefix the project's `CLAUDE.md` gives for docs changes (`docs:` when it says nothing). When it changed nothing, say so and go on. Open questions it reports go in your final report, not into the docs.
+
+## 7. Review
+
+Run the `factory:review` skill on the Story. Codex reviews the whole Story diff; blocking findings come back as a bug Subtask, which you build, Verify and commit as in step 4, then Codex reviews again. It stops the Run itself after 2 failed rounds or when Codex is unavailable: then go to step 9. Go on only with a passed Review on the current head.
+
+## 8. Integrate
+
+Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or a conflict it couldn't resolve. Integrate commits nothing new on the Feature branch in a Run, so the Review from step 7 still covers its head; a conflict it resolves goes on a resolution branch, which that Review covers too.
+
+## 9. Report
 
 End with the Story key and where it stands, then one line per Subtask: key, builder, rounds, verdict, then one line per Review round: verdict and comment link, and Codex's suggestions for Pedro to file or drop. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
 
