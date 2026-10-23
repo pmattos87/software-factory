@@ -96,7 +96,7 @@ What runs depends on the PR's target branch:
 | production (`main`) | ✅ | ✅ | | |
 | push to integration (opt-in) | ✅ | | | |
 
-Gates are skipped when the diff touches only docs (`docs/`, `*.md`, `LICENSE`). Runs go on Linux, are cancelled when a newer push to the same PR arrives, and cache npm, Cargo and the `ci.apt` packages (through [awalsh128/cache-apt-pkgs-action](https://github.com/awalsh128/cache-apt-pkgs-action), pinned to a commit; a cache hit skips `apt-get` entirely).
+Gates are skipped when the diff touches only docs (`docs/`, `*.md`, `LICENSE`). Runs go on Linux, are cancelled when a newer push to the same PR arrives, and cache npm and Cargo. System packages are not cached: [awalsh128/cache-apt-pkgs-action](https://github.com/awalsh128/cache-apt-pkgs-action) was tried in SF-41 and dropped, because a failed install still passed the step and saved an empty cache, and on a miss it downloads `apt-fast` from another repo's `master`.
 
 ### Warming the caches
 
@@ -110,7 +110,7 @@ on:
     branches: [develop]
 ```
 
-The push run runs the gates (checking `develop` after each merge too) and is the only run that saves the Rust cache; PR runs only restore it. npm and apt save on a cache miss wherever it happens, which on a PR means only when it changes the lockfile or the package list.
+The push run runs the gates (checking `develop` after each merge too) and is the only run that saves the Rust cache; PR runs only restore it. npm saves on a cache miss wherever it happens, which on a PR means only when it changes the lockfile.
 
 **Cost:** one gates run per merge into `develop`, in Actions minutes, not waiting time: it starts after the merge and nothing waits on it. Each PR run gets faster in exchange. Free on public repos; on a private repo it spends minutes, so opt in deliberately.
 
