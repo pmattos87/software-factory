@@ -9,6 +9,8 @@
 #       uses: pmattos87/software-factory/.github/workflows/pr-checks.yml@main
 #
 # What runs comes from the project's .claude/factory.json and the PR's target branch.
+# A project may also trigger it on push to its integration branch: that run runs the
+# gates and is the only one that saves the Rust cache, which PRs into that branch restore.
 
 name: Factory PR checks
 
@@ -24,14 +26,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: factory-pr-checks-${{ github.repository }}-${{ github.event.pull_request.number }}
+  group: factory-pr-checks-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# On a push: the pushed branch, and the commits before and after it.
 env:
-  BASE_REF: ${{ github.event.pull_request.base.ref }}
+  BASE_REF: ${{ github.event.pull_request.base.ref || github.ref_name }}
   HEAD_REF: ${{ github.event.pull_request.head.ref }}
-  BASE_SHA: ${{ github.event.pull_request.base.sha }}
-  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   PR_TITLE: ${{ github.event.pull_request.title }}
   FACTORY: ${{ github.workspace }}/.factory/plugin/scripts
 
@@ -95,7 +98,8 @@ jobs:
         with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts }
       - name: System packages
         if: needs.plan.outputs.apt != ''
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ${{ needs.plan.outputs.apt }}
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with: { packages: '${{ needs.plan.outputs.apt }}' }
       - uses: actions/setup-node@v4
         if: needs.plan.outputs.node != ''
         with:
@@ -106,5 +110,5 @@ jobs:
         with: { toolchain: '${{ needs.plan.outputs.rust }}' }
       - uses: Swatinem/rust-cache@v2
         if: needs.plan.outputs.rust != ''
-        with: { workspaces: '${{ needs.plan.outputs.rust-workspace }}' }
+        with: { workspaces: '${{ needs.plan.outputs.rust-workspace }}', save-if: "${{ github.event_name == 'push' }}" }
       - run: node "$FACTORY/ci.mjs" run ${{ matrix.kind }}

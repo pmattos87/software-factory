@@ -94,8 +94,25 @@ What runs depends on the PR's target branch:
 |---|---|---|---|---|
 | integration (`develop`) | ✅ | | ✅ | ✅ |
 | production (`main`) | ✅ | ✅ | | |
+| push to integration (opt-in) | ✅ | | | |
 
-Gates are skipped when the diff touches only docs (`docs/`, `*.md`, `LICENSE`). Runs go on Linux, are cancelled when a newer push to the same PR arrives, and cache npm and Cargo.
+Gates are skipped when the diff touches only docs (`docs/`, `*.md`, `LICENSE`). Runs go on Linux, are cancelled when a newer push to the same PR arrives, and cache npm, Cargo and the `ci.apt` packages (through [awalsh128/cache-apt-pkgs-action](https://github.com/awalsh128/cache-apt-pkgs-action), pinned to a commit; a cache hit skips `apt-get` entirely).
+
+### Warming the caches
+
+GitHub scopes caches by branch: a PR restores only what its own runs or its base branch saved. With `pull_request` alone nothing is ever saved on `develop`, so every PR compiles from scratch. A project opts in to a push run on its integration branch by adding the trigger to its caller:
+
+```yaml
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+```
+
+The push run runs the gates (checking `develop` after each merge too) and is the only run that saves the Rust cache; PR runs only restore it. npm and apt save on a cache miss wherever it happens, which on a PR means only when it changes the lockfile or the package list.
+
+**Cost:** one gates run per merge into `develop`, in Actions minutes, not waiting time: it starts after the merge and nothing waits on it. Each PR run gets faster in exchange. Free on public repos; on a private repo it spends minutes, so opt in deliberately.
 
 ## Tests
 

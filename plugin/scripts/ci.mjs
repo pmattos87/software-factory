@@ -4,6 +4,8 @@
 //   node ci.mjs run gates|build    runs the project's commands of that kind
 //   node ci.mjs conventions        branch name, PR title and commit subjects
 // Reads BASE_REF, HEAD_REF, BASE_SHA, HEAD_SHA and PR_TITLE from the environment.
+// On a push to the integration branch (GITHUB_EVENT_NAME=push), BASE_REF is the
+// pushed branch, BASE_SHA the commit before the push and HEAD_SHA the one after.
 
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -11,7 +13,7 @@ import { git } from './lib/git.mjs';
 import { loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { checkPullRequest } from './lib/conventions.mjs';
 
-const { BASE_REF, HEAD_REF, BASE_SHA, HEAD_SHA, PR_TITLE, GITHUB_OUTPUT } = process.env;
+const { BASE_REF, HEAD_REF, BASE_SHA, HEAD_SHA, PR_TITLE, GITHUB_OUTPUT, GITHUB_EVENT_NAME } = process.env;
 const root = process.cwd();
 const config = loadConfig(root);
 if (!config?.boardKey) fail(`${CONFIG_PATH} with a boardKey is missing; the Factory can't tell which checks to run.`);
@@ -21,23 +23,26 @@ const DOCS = /(^docs\/|\.md$|^LICENSE)/;
 switch (process.argv[2]) {
   case 'plan': {
     // Which checks run into which branch: docs/spec/issues/10-pr-checks.md
+    // A push runs only the gates, to warm the caches PRs restore (guardrails.md, Actions).
+    const push = GITHUB_EVENT_NAME === 'push';
     const intoProduction = BASE_REF === config.branches.production;
+    // A failed diff (first push, before = 000...) lists nothing, so the gates run.
     const changed = (git(root, 'diff', '--name-only', `${BASE_SHA}...${HEAD_SHA}`) ?? '').split('\n').filter(Boolean);
     const docsOnly = changed.length > 0 && changed.every((f) => DOCS.test(f));
 
     const kinds = [];
     if (config.gates.length && !docsOnly) kinds.push('gates');
-    if (config.build.length && intoProduction) kinds.push('build');
+    if (config.build.length && intoProduction && !push) kinds.push('build');
     output({
       kinds: JSON.stringify(kinds),
-      'secret-scan': String(!intoProduction),
-      conventions: String(!intoProduction),
+      'secret-scan': String(!intoProduction && !push),
+      conventions: String(!intoProduction && !push),
       node: config.ci.node ?? '',
       rust: config.ci.rust ?? '',
       'rust-workspace': config.ci.rustWorkspace ?? '.',
       apt: (config.ci.apt ?? []).join(' '),
     });
-    console.log(`Into ${BASE_REF}: ${kinds.join(', ') || 'no commands'}${docsOnly ? ' (docs-only diff, gates skipped)' : ''}.`);
+    console.log(`${push ? 'Push to' : 'Into'} ${BASE_REF}:${kinds.join(', ') || 'no commands'}${docsOnly ? ' (docs-only diff, gates skipped)' : ''}.`);
     break;
   }
   case 'run': {
