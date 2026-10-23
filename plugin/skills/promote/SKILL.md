@@ -52,7 +52,7 @@ Find the PR with `gh pr list --head release/v<version> --base <production> --sta
    git-bot merge --no-ff origin/<its Feature branch> -m "Merge <its Feature branch> (<KEY>) into the Release"
    ```
 
-   A conflict stops the cut: `git merge --abort`, switch back, and report the files and the two Stories. Two picks that conflict can't ship together until one is rebuilt on top of the other; that is Pedro's call. A pick already in production makes its merge a no-op; say so.
+   A conflict between two picks is resolved in that merge commit, here on the Release, never on either Feature branch: resolve each conflicted file so both sides' intent survives (two changelog entries keep both), touch nothing outside the conflicted hunks, `git add` them, check `git diff --cached --check`, and `git-bot commit --no-edit`. Run the Gates once every pick is merged; a failure means a resolution is wrong. Stop the cut (`git merge --abort`, switch back, report the files and the two Stories) when a hunk can only be resolved by picking one Story's behavior over the other's, or when you aren't sure what a side meant: that is Pedro's call. Name every resolved conflict in the PR body. A pick already in production makes its merge a no-op; say so.
 
 2. **Confirm the version.** `node release-version.mjs propose` reads the commits since the last release tag and proposes the next version (a breaking change is major, a `feat` minor, anything else patch). Show it with the Release's version. When they differ, ask Pedro which one ships; when he picks the proposed one, `release_set_version` before going on. A version lower than the proposal needs his explicit confirmation: it hides what the commits say.
 

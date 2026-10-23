@@ -97,7 +97,7 @@ Run the `factory:review` skill on the Story. Codex reviews the whole Story diff;
 
 ## 7. Integrate
 
-Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or conflict. Integrate commits nothing new in a Run, so the Review from step 6 still covers its head.
+Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or a conflict it couldn't resolve. Integrate commits nothing new on the Feature branch in a Run, so the Review from step 6 still covers its head; a conflict it resolves goes on a resolution branch, which that Review covers too.
 
 ## 8. Report
 

@@ -195,6 +195,23 @@ test('PR gate: a Feature branch needs a passed Review on its head', () => {
   process.env.FAKE_STORIES = JSON.stringify({ 'FB-8': 'legacy' });
   assert.ok(!create('FB-8: add b').blocked, "a legacy project's Story has no Review to require");
 
+  // A resolution branch: develop with the reviewed Feature branch merged in.
+  git(dir, 'checkout', '-q', '-b', 'feat/FB-8-review-merge', 'develop');
+  git(dir, 'merge', '-q', '--no-ff', '-m', 'chore: merge feat/FB-8-review into develop', 'feat/FB-8-review');
+  reviewed('FB-8', head);
+  assert.ok(!create('FB-8: add b').blocked, "the Feature branch's Review covers its merge into develop");
+  reviewed('FB-8', git(dir, 'rev-parse', 'HEAD^1'));
+  assert.match(create('FB-8: add b').stderr, /Review the new head/);
+
+  // The other way round, develop merged into the Feature branch, needs a new Review.
+  git(dir, 'checkout', '-q', 'develop');
+  git(dir, 'commit', '-q', '--allow-empty', '-m', 'chore: move develop on');
+  git(dir, 'checkout', '-q', '-b', 'feat/FB-8-review-back', head);
+  git(dir, 'merge', '-q', '--no-ff', '-m', 'Merge develop', 'develop');
+  reviewed('FB-8', head);
+  assert.match(create('FB-8: add b').stderr, /Review the new head/);
+  git(dir, 'checkout', '-q', 'feat/FB-8-review');
+
   git(dir, 'checkout', '-q', '-b', 'release/v1.2.0');
   process.env.FAKE_STORIES = '{}';
   const rel = create('Release v1.2.0', 'main');
