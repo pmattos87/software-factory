@@ -30,11 +30,14 @@ switch (process.argv[2]) {
     const changed = (git(root, 'diff', '--name-only', `${BASE_SHA}...${HEAD_SHA}`) ?? '').split('\n').filter(Boolean);
     const docsOnly = changed.length > 0 && changed.every((f) => DOCS.test(f));
 
+    // A docs-only diff still lists the gates, so the `gates` check rulesets require
+    // reports; the workflow skips its steps and says why (SF-90).
     const kinds = [];
-    if (config.gates.length && !docsOnly) kinds.push('gates');
+    if (config.gates.length) kinds.push('gates');
     if (config.build.length && intoProduction && !push) kinds.push('build');
     output({
       kinds: JSON.stringify(kinds),
+      'docs-only': String(docsOnly),
       'secret-scan': String(!intoProduction && !push),
       conventions: String(!intoProduction && !push),
       node: config.ci.node ?? '',
@@ -42,7 +45,7 @@ switch (process.argv[2]) {
       'rust-workspace': config.ci.rustWorkspace ?? '.',
       apt: (config.ci.apt ?? []).join(' '),
     });
-    console.log(`${push ? 'Push to' : 'Into'} ${BASE_REF}:${kinds.join(', ') || 'no commands'}${docsOnly ? ' (docs-only diff, gates skipped)' : ''}.`);
+    console.log(`${push ? 'Push to' : 'Into'} ${BASE_REF}: ${kinds.join(', ') || 'no commands'}${docsOnly ? ' (docs-only diff, gates skipped)' : ''}.`);
     break;
   }
   case 'run': {

@@ -51,6 +51,7 @@ before(() => {
 test('ci plan: a PR into develop gets gates, secret scan and conventions', () => {
   const out = plan(dir, { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'develop', BASE_SHA: base, HEAD_SHA: docs });
   assert.deepEqual(JSON.parse(out.kinds), ['gates']);
+  assert.equal(out['docs-only'], 'false');
   assert.equal(out['secret-scan'], 'true');
   assert.equal(out.conventions, 'true');
 });
@@ -58,6 +59,7 @@ test('ci plan: a PR into develop gets gates, secret scan and conventions', () =>
 test('ci plan: a PR into main also builds, without secret scan or conventions', () => {
   const out = plan(dir, { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'main', BASE_SHA: base, HEAD_SHA: docs });
   assert.deepEqual(JSON.parse(out.kinds), ['gates', 'build']);
+  assert.equal(out['docs-only'], 'false');
   assert.equal(out['secret-scan'], 'false');
   assert.equal(out.conventions, 'false');
 });
@@ -74,14 +76,29 @@ test('ci plan: a push to main never builds', () => {
   assert.deepEqual(JSON.parse(out.kinds), ['gates']);
 });
 
-test('ci plan: a docs-only push skips the gates', () => {
+// A docs-only diff still lists the gates, so the required check reports; the workflow skips its steps.
+test('ci plan: a docs-only PR into develop marks the gates docs-only', () => {
+  const out = plan(dir, { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'develop', BASE_SHA: code, HEAD_SHA: docs });
+  assert.deepEqual(JSON.parse(out.kinds), ['gates']);
+  assert.equal(out['docs-only'], 'true');
+});
+
+test('ci plan: a docs-only PR into main still builds', () => {
+  const out = plan(dir, { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'main', BASE_SHA: code, HEAD_SHA: docs });
+  assert.deepEqual(JSON.parse(out.kinds), ['gates', 'build']);
+  assert.equal(out['docs-only'], 'true');
+});
+
+test('ci plan: a docs-only push marks the gates docs-only', () => {
   const out = plan(dir, { GITHUB_EVENT_NAME: 'push', BASE_REF: 'develop', BASE_SHA: code, HEAD_SHA: docs });
-  assert.deepEqual(JSON.parse(out.kinds), []);
+  assert.deepEqual(JSON.parse(out.kinds), ['gates']);
+  assert.equal(out['docs-only'], 'true');
 });
 
 test('ci plan: a push with no usable before commit runs the gates', () => {
   for (const before of ['0'.repeat(40), '']) {
     const out = plan(dir, { GITHUB_EVENT_NAME: 'push', BASE_REF: 'develop', BASE_SHA: before, HEAD_SHA: docs });
     assert.deepEqual(JSON.parse(out.kinds), ['gates'], `before=${JSON.stringify(before)}`);
+    assert.equal(out['docs-only'], 'false', `before=${JSON.stringify(before)}`);
   }
 });

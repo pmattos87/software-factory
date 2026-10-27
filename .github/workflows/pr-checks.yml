@@ -43,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       kinds: ${{ steps.plan.outputs.kinds }}
+      docs-only: ${{ steps.plan.outputs.docs-only }}
       secret-scan: ${{ steps.plan.outputs.secret-scan }}
       conventions: ${{ steps.plan.outputs.conventions }}
       node: ${{ steps.plan.outputs.node }}
@@ -91,23 +92,33 @@ jobs:
       fail-fast: false
       matrix:
         kind: ${{ fromJSON(needs.plan.outputs.kinds) }}
+    # A docs-only diff still gets a gates check, so rulesets that require it can merge,
+    # but none of its steps run; its summary says why.
+    env:
+      SKIP: ${{ matrix.kind == 'gates' && needs.plan.outputs.docs-only == 'true' }}
     steps:
+      - name: Docs-only diff
+        if: env.SKIP == 'true'
+        run: echo "Docs-only diff, gates skipped." | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
+        if: env.SKIP != 'true'
         with: { ref: '${{ env.HEAD_SHA }}' }
       - uses: actions/checkout@v4
+        if: env.SKIP != 'true'
         with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts }
       - name: System packages
-        if: needs.plan.outputs.apt != ''
+        if: env.SKIP != 'true' && needs.plan.outputs.apt != ''
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ${{ needs.plan.outputs.apt }}
       - uses: actions/setup-node@v4
-        if: needs.plan.outputs.node != ''
+        if: env.SKIP != 'true' && needs.plan.outputs.node != ''
         with:
           node-version: ${{ needs.plan.outputs.node }}
           cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
       - uses: dtolnay/rust-toolchain@master
-        if: needs.plan.outputs.rust != ''
+        if: env.SKIP != 'true' && needs.plan.outputs.rust != ''
         with: { toolchain: '${{ needs.plan.outputs.rust }}' }
       - uses: Swatinem/rust-cache@v2
-        if: needs.plan.outputs.rust != ''
+        if: env.SKIP != 'true' && needs.plan.outputs.rust != ''
         with: { workspaces: '${{ needs.plan.outputs.rust-workspace }}', save-if: "${{ github.event_name == 'push' }}" }
-      - run: node "$FACTORY/ci.mjs" run ${{ matrix.kind }}
+      - if: env.SKIP != 'true'
+        run: node "$FACTORY/ci.mjs" run ${{ matrix.kind }}
