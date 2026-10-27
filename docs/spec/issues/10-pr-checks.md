@@ -29,7 +29,7 @@ Resolved 2026-10-20 with Pedro.
 
 **All required.** Every check blocks the merge; none is advisory, because the bot merges on green alone. A check too strict to block gets fixed, not demoted.
 
-**Minutes discipline** (standing rules of the reusable workflow, not per-project choices): run on `pull_request` only, cancel superseded runs on the same PR, skip gates on docs-only diffs, Linux runners only (any macOS/Windows build only at `release/*` for projects that need it), cache dependencies.
+**Minutes discipline** (standing rules of the reusable workflow, not per-project choices): run on `pull_request` only, cancel superseded runs on the same PR, skip gates on docs-only diffs (the `gates` check still reports, green, with a docs-only summary, so rulesets that require it don't block the merge; SF-90), Linux runners only (any macOS/Windows build only at `release/*` for projects that need it), cache dependencies.
 
 - *Amended 2026-10-23 (SF-41, after Flowboard's 737 MB Rust cache was saved on 8 PRs and restored 0 times):* GitHub scopes caches by branch, so a PR restores only what its own PR or its base branch saved, and a `pull_request`-only workflow never saves on `develop`. A project may **opt in** to a push run on its integration branch, through its own caller's trigger: it runs the gates only (no build, secret scan or conventions), skips docs-only pushes, and is the only run that saves the Rust cache, which PRs then restore. It costs one gates run per merge, after the merge, so nothing waits on it; free on public repos, minutes on private ones. System packages stay uncached: the apt cache action tried here passed a failed install and saved an empty cache.
 

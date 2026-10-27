@@ -96,7 +96,7 @@ What runs depends on the PR's target branch:
 | production (`main`) | ✅ | ✅ | | |
 | push to integration (opt-in) | ✅ | | | |
 
-Gates are skipped when the diff touches only docs (`docs/`, `*.md`, `LICENSE`). Runs go on Linux, are cancelled when a newer push to the same PR arrives, and cache npm and Cargo. System packages are not cached: [awalsh128/cache-apt-pkgs-action](https://github.com/awalsh128/cache-apt-pkgs-action) was tried in SF-41 and dropped, because a failed install still passed the step and saved an empty cache, and on a miss it downloads `apt-fast` from another repo's `master`.
+Gates are skipped when the diff touches only docs (`docs/`, `*.md`, `LICENSE`): the `gates` check still reports, green, with "Docs-only diff, gates skipped." as its summary and none of its steps run, so a ruleset that requires it doesn't block the merge. Runs go on Linux, are cancelled when a newer push to the same PR arrives, and cache npm and Cargo. System packages are not cached: [awalsh128/cache-apt-pkgs-action](https://github.com/awalsh128/cache-apt-pkgs-action) was tried in SF-41 and dropped, because a failed install still passed the step and saved an empty cache, and on a miss it downloads `apt-fast` from another repo's `master`.
 
 ### Warming the caches
 
