@@ -240,19 +240,19 @@ test('PR gate: a Gate QA verified on this tree is skipped and reported; anything
   assert.equal(runs(), 1);
 
   let out = create();
-  assert.ok(!out.blocked, out.stderr);
+  assert.equal(out.status, 0, out.stderr);
   assert.equal(runs(), 1, 'the verified Gate is not run again');
   assert.match(JSON.parse(out.stdout).systemMessage, /\[factory:pr-gate\] skipped `node -e .*`: passed on this tree \([0-9a-f]{12}, doc-only paths aside\) in qa at /);
   assert.match(fs.readFileSync(path.join(r, '.git/factory/gates/pr-gate.log'), 'utf8'), /feat\/FB-9-evidence|[0-9a-f]{40}/);
 
   commit('docs/c.md', 'about c\n', 'docs: describe c');
   out = create();
-  assert.ok(!out.blocked, out.stderr);
+  assert.equal(out.status, 0, out.stderr);
   assert.equal(runs(), 1, 'a Docs commit on a verified tree still skips');
 
   commit('c.js', 'c2\n', 'fix(c): change c');
   out = create();
-  assert.ok(!out.blocked, out.stderr);
+  assert.equal(out.status, 0, out.stderr);
   assert.equal(runs(), 2, 'a code change runs the Gate');
   assert.equal(out.stdout, '', 'nothing skipped, nothing reported');
   out = create();
@@ -264,7 +264,7 @@ test('PR gate: a Gate QA verified on this tree is skipped and reported; anything
   git(r, 'checkout', '-q', '-b', 'feat/FB-9-evidence-merge');
   git(r, 'merge', '-q', '--no-ff', '-m', 'chore: merge feat/FB-9-evidence into develop', 'feat/FB-9-evidence');
   out = create();
-  assert.ok(!out.blocked, out.stderr);
+  assert.equal(out.status, 0, out.stderr);
   assert.equal(runs(), 3, 'a merge resolution runs the Gate');
 
   // A failing tree never matches a pass, so the Gate runs and blocks.
@@ -273,4 +273,27 @@ test('PR gate: a Gate QA verified on this tree is skipped and reported; anything
   out = create();
   assert.match(out.stderr, /Gate failed/);
   assert.equal(runs(), 4);
+});
+
+test('PR gate: a Gate that rewrites the tree leaves no evidence, so the next attempt runs every Gate', () => {
+  const trace = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-trace-')), 'runs.txt');
+  const mark = `node -e "require('fs').appendFileSync(process.env.GATE_TRACE, 'x')"`;
+  const rewrite = `node -e "require('fs').writeFileSync('src.js', 'rewritten')"`;
+  const r = repo({ boardKey: 'FB', branches: { integration: 'develop', production: 'main' }, gates: [rewrite, mark] });
+  const env = { GATE_TRACE: trace, FAKE_STORIES: JSON.stringify({ 'FB-10': 'legacy' }) };
+  const runs = () => (fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8').length : 0);
+  const create = () => runHook('pr-gate', 'gh pr create --base develop --title "feat: add s (FB-10)" --body x', r, env);
+  git(r, 'checkout', '-q', '-b', 'feat/FB-10-rewrite');
+  fs.writeFileSync(path.join(r, 'src.js'), 'original');
+  git(r, 'add', 'src.js');
+  git(r, 'commit', '-q', '-m', 'feat(s): add s');
+
+  let out = create();
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(runs(), 1);
+  assert.ok(!fs.existsSync(path.join(r, '.git/factory/gates/evidence.json')), 'no evidence is recorded after the tree changed');
+  git(r, 'checkout', '-q', '--', 'src.js');
+  out = create();
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(runs(), 2, 'nothing was recorded, so both Gates run again');
 });

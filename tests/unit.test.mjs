@@ -14,7 +14,7 @@ import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } f
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
 import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
-import { treeKey, matchingEvidence, readEvidence } from '../plugin/scripts/lib/gate-evidence.mjs';
+import { treeKey, matchingEvidence, readEvidence, toolchain } from '../plugin/scripts/lib/gate-evidence.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
 import { findBrowser, browserCandidates, printArgs, printPdf } from '../plugin/scripts/lib/browser.mjs';
@@ -652,4 +652,55 @@ test('run-gates.mjs logs every Gate and records evidence only for passes on an u
   assert.equal(r.status, 0);
   assert.match(r.stdout, /tree changed while the Gates ran/);
   assert.deepEqual(evidence(), {});
+});
+
+test('treeKey covers file modes and refuses repos with submodules', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-treekey-modes-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(dir, 'run.sh'), 'echo hi\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  const base = treeKey(dir);
+  git(dir, 'update-index', '--chmod=+x', 'run.sh');
+  assert.notEqual(treeKey(dir), base, 'an executable bit changes the key');
+  git(dir, 'update-index', '--chmod=-x', 'run.sh');
+  assert.equal(treeKey(dir), base);
+
+  const sha = git(dir, 'rev-parse', 'HEAD');
+  git(dir, 'update-index', '--add', '--cacheinfo', `160000,${sha},vendor/lib`);
+  assert.equal(treeKey(dir), null, 'a submodule means no reuse');
+  assert.match(toolchain(dir).node, /^v\d+/);
+});
+
+test('run-gates.mjs forgets a pass that later fails, and stops recording once a Gate rewrites the tree', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-rungates-forget-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  const flaky = 'node -e "process.exit(require(\'fs\').existsSync(\'.git/FAIL\') ? 1 : 0)"';
+  const ok = 'node -e "0"';
+  const rewrite = 'node -e "require(\'fs\').writeFileSync(\'gen.js\', String(Date.now()))"';
+  const setGates = (gates) => {
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates }));
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'gates');
+  };
+  const run = () => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/run-gates.mjs'), path.join(dir, '.git/factory/logs/FB-1/qa.log')], { cwd: dir, encoding: 'utf8' });
+
+  setGates([flaky]);
+  assert.equal(run().status, 0);
+  assert.deepEqual(Object.keys(readEvidence(dir)), [flaky]);
+  fs.writeFileSync(path.join(dir, '.git/FAIL'), '');
+  assert.equal(run().status, 1);
+  assert.deepEqual(readEvidence(dir), {}, 'the failure forgets the earlier pass on the same tree');
+  fs.rmSync(path.join(dir, '.git/FAIL'));
+
+  setGates([ok, rewrite, ok + ' ']);
+  const r = run();
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /no evidence recorded from then on/);
+  assert.deepEqual(Object.keys(readEvidence(dir)), [ok], 'only the Gate before the rewrite counts');
 });

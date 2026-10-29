@@ -14,7 +14,7 @@ import { git, repoRoot, currentBranch } from './lib/git.mjs';
 import { loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { checkPullRequest, isReleaseBranch, parseFeatureBranch } from './lib/conventions.mjs';
 import { findFlowboardCli, checkReview } from './lib/review.mjs';
-import { treeKey, toolchain, readEvidence, recordPass, matchingEvidence } from './lib/gate-evidence.mjs';
+import { treeKey, toolchain, readEvidence, recordPass, forget, matchingEvidence } from './lib/gate-evidence.mjs';
 
 const { command, cwd } = readToolCall();
 if (!/\bgh\b/.test(command)) process.exit(0);
@@ -51,8 +51,10 @@ function gate(dir, opts) {
 
   // A Gate already passed on this exact tree (doc-only paths aside), command and
   // toolchain is not run again; anything else runs, and a pass is recorded.
-  const key = treeKey(root);
-  const tools = toolchain();
+  // Once a Gate changes the tree, the key no longer describes it: every later
+  // Gate runs and nothing more is recorded.
+  let key = treeKey(root);
+  const tools = toolchain(root);
   const evidence = readEvidence(root);
   for (const cmd of config.gates) {
     const e = matchingEvidence(evidence, cmd, key, tools);
@@ -62,10 +64,12 @@ function gate(dir, opts) {
     }
     const r = spawnSync(cmd, { cwd: root, shell: true, encoding: 'utf8' });
     if (r.status !== 0) {
+      forget(root, cmd);
       const output = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-40).join('\n');
       block('pr-gate', `Gate failed: \`${cmd}\` (exit ${r.status}). Fix it before opening the PR.\n${output}`);
     }
-    recordPass(root, cmd, key, tools, 'pr-gate');
+    if (key && treeKey(root) === key) recordPass(root, cmd, key, tools, 'pr-gate');
+    else key = null;
   }
   if (skipped.length) {
     const log = git(root, 'rev-parse', '--git-path', 'factory/gates/pr-gate.log');
