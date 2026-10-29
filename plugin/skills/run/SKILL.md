@@ -104,8 +104,8 @@ After the last Subtask passes, the code the Story wrote gets one cleanup pass, b
      - Only code this Story added or changed was touched.
      - Out-of-scope findings are listed in the result's noticed line, not fixed.
    ```
-2. **Build it as in step 4**, items 1 to 6: handoff, build, Verify, its own 2 rounds. The handoff to `factory:simplify` also carries the Story's diff against production.
-3. **Nothing to simplify**: when the builder changed no files and QA passes it, `subtask_move` it to `done` with nothing to commit, and say so in the report.
+2. **Build it as in step 4**, items 1 to 6: handoff, build, Verify, its own 2 rounds. The handoff to `factory:simplify` also carries the Story's diff against production. Record `git rev-parse HEAD` just before the handoff: every Subtask before it has passed Verify, so that commit is verified.
+3. **Nothing to simplify**: when Simplify hands back, check both `git status --porcelain` (empty) and `git rev-parse HEAD` (the sha you recorded). Only when both hold, skip QA: `subtask_verify` with `passed` and the reason `No change: tree clean, HEAD <sha> already verified`, then `subtask_move` it to `done` with nothing to commit, and say so in the report. If either check fails (a file changed, even one Simplify reports as unchanged, or HEAD moved), Verify it as in step 4, whatever Simplify's result says.
 
 A `done` Simplify Subtask is never filed or built again; go on to Docs.
 
