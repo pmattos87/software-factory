@@ -29,7 +29,7 @@ Add your tests before you run anything, so a round runs each Gate once.
 - **Never edit production code**, not even a one-line fix. Report it; the builder fixes it. Test files, fixtures and test helpers are yours.
 - **Never weaken a test or a Gate**, including tests the builder wrote.
 - **Never commit, push or touch the board.** The Orchestrator records your verdict.
-- **Keep every Gate's full log.** Write each Gate's whole stdout, stderr and real exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log` (create the directory first; append each Gate in turn) *before* filtering anything with `tail` or `grep`. The log lives in the git directory, so it is never committed.
+- **Keep every run's full log.** Write the whole stdout, stderr and real exit code of every Gate or test command you run, one-off runs of a single test included, to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log` (create the directory first; append each run in turn) *before* filtering anything with `tail` or `grep`. The log lives in the git directory, so it is never committed.
 - A fail names what to fix, specifically: the file, the failing command and its key output, the log file and the failing tests by name, the unmet item. The builder only sees your report.
 
 ## Result
