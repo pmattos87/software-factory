@@ -29,6 +29,15 @@ Read before you split:
 - **Estimate** in story points (1, 2, 3, 5, 8). Anything above 5 is a sign the slice should split again.
 - **Flag risk** when a slice touches data that can't be rebuilt (migrations, money, deletes), a security boundary, or code with no tests around it. Say why in one line.
 - **Definition of done per Subtask**: the observable facts QA checks. Each one is something a command or a reading of the code can prove, not "works well".
+- **Merge a 1-point slice into its neighbour.** Every Subtask pays a fixed cost (a hand-off and a full Verify), which a 1-point slice can't earn back. Merge two Subtasks into one when all of these hold:
+  - the same builder;
+  - one of them is 1 point;
+  - they are next to each other in build order;
+  - neither is flagged risky;
+  - they touch the same area (screen, module or files);
+  - the merged Subtask is at most 5 points.
+
+  The merged Subtask keeps every "done when" item of both. Never merge across builders, or a risky slice: those stay apart whatever their size.
 
 **Dependencies.** A Story's Feature branch is cut from the production branch (`branches.production` in `.claude/factory.json`), so it only holds what is in production. When a slice needs code that isn't there yet (it is on the integration branch, or on another Story's Feature branch), find the Story it comes from (`git log --merges origin/<integration>` names the Feature branches, and each branch name carries its Story key) and list it under *Depends on*. The Run merges that Story's Feature branch in before building. Code already in production is not a dependency. List each Subtask's files as exactly as you can: the split skill checks them against the unreleased work and asks Pedro about any Story they touch that you didn't list.
 
