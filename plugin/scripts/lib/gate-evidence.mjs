@@ -13,17 +13,11 @@ import { git } from './git.mjs';
 // Paths that never change what a Gate proves. Shared with ci.mjs's docs-only skip.
 export const DOCS = /(^docs\/|\.md$|^LICENSE)/;
 
-// A hash of every tracked and untracked (not ignored) file outside the
-// doc-only paths, as it is in the working tree: its content and its mode (the
-// index's, or the working tree's when an unstaged change altered it). Null when
-// git can't list them, or when the repo has a submodule, whose checkout the key
-// can't represent: then nothing is ever reused.
-export function treeKey(root) {
-  const staged = git(root, 'ls-files', '-s', '-z');
-  const listed = git(root, 'ls-files', '-co', '--exclude-standard', '--deduplicate', '-z');
-  const raw = git(root, 'diff', '--raw', '-z');
-  if (staged === null || listed === null || raw === null) return null;
-
+// Each tracked file's mode, from `git ls-files -s -z` overridden by the
+// unstaged changes in `git diff --raw -z` (":old new oldsha newsha status\0path\0").
+// Null when the index holds a submodule (160000), whose checkout no key can
+// represent.
+export function fileModes(staged, raw) {
   const modes = new Map();
   for (const entry of staged.split('\0').filter(Boolean)) {
     const [meta, file] = entry.split('\t');
@@ -31,12 +25,34 @@ export function treeKey(root) {
     if (mode === '160000') return null;
     modes.set(file, mode);
   }
-  // `git diff --raw -z`: ":old new oldsha newsha status\0path\0" per unstaged change.
   const parts = raw.split('\0');
   for (let i = 0; i + 1 < parts.length; i += 2) {
     const [, newMode] = parts[i].replace(/^:/, '').split(' ');
     if (newMode && newMode !== '000000') modes.set(parts[i + 1], newMode);
   }
+  return modes;
+}
+
+// The mode `git add` would give an untracked file, so staging a verified file
+// keeps its key: a symlink is 120000; it is 100755 only when git tracks
+// executable bits (core.fileMode) and the file has one; otherwise 100644.
+export function untrackedMode(stat, fileMode) {
+  if (stat.isSymbolicLink()) return '120000';
+  return fileMode && stat.mode & 0o111 ? '100755' : '100644';
+}
+
+// A hash of every tracked and untracked (not ignored) file outside the
+// doc-only paths, as it is in the working tree: its path, its mode and its
+// content. Null when git can't list them, or when the repo has a submodule:
+// then nothing is ever reused.
+export function treeKey(root) {
+  const staged = git(root, 'ls-files', '-s', '-z');
+  const listed = git(root, 'ls-files', '-co', '--exclude-standard', '--deduplicate', '-z');
+  const raw = git(root, 'diff', '--raw', '-z');
+  if (staged === null || listed === null || raw === null) return null;
+  const modes = fileModes(staged, raw);
+  if (!modes) return null;
+  const fileMode = git(root, 'config', '--bool', 'core.fileMode') !== 'false';
 
   const files = [...new Set(listed.split('\0').filter(Boolean))]
     .filter((f) => !DOCS.test(f) && fs.existsSync(path.join(root, f)) && fs.statSync(path.join(root, f)).isFile())
@@ -47,15 +63,19 @@ export function treeKey(root) {
   if (hashes.status !== 0) return null;
   const lines = hashes.stdout.trim().split('\n').filter(Boolean);
   const sum = crypto.createHash('sha256');
-  files.forEach((f, i) => sum.update(`${f}\0${modes.get(f) ?? 'untracked'}\0${lines[i]}\n`));
+  files.forEach((f, i) => {
+    const mode = modes.get(f) ?? untrackedMode(fs.lstatSync(path.join(root, f)), fileMode);
+    sum.update(`${f}\0${mode}\0${lines[i]}\n`);
+  });
   return sum.digest('hex');
 }
 
 // The versions a Gate's result depends on beyond the tree, probed in `root`,
-// where the Gates run (a rustup override is per directory).
-export function toolchain(root) {
+// where the Gates run (a rustup override is per directory). `spawn` is
+// injectable for tests.
+export function toolchain(root, spawn = spawnSync) {
   const version = (cmd) => {
-    const r = spawnSync(cmd, ['--version'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', windowsHide: true });
+    const r = spawn(cmd, ['--version'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', windowsHide: true });
     return r.status === 0 ? r.stdout.trim() : null;
   };
   return { node: version('node'), rustc: version('rustc') };

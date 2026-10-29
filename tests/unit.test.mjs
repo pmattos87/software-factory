@@ -14,7 +14,7 @@ import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } f
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
 import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
-import { treeKey, matchingEvidence, readEvidence, toolchain } from '../plugin/scripts/lib/gate-evidence.mjs';
+import { treeKey, matchingEvidence, readEvidence, toolchain, fileModes, untrackedMode } from '../plugin/scripts/lib/gate-evidence.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
 import { findBrowser, browserCandidates, printArgs, printPdf } from '../plugin/scripts/lib/browser.mjs';
@@ -703,4 +703,63 @@ test('run-gates.mjs forgets a pass that later fails, and stops recording once a 
   assert.equal(r.status, 0);
   assert.match(r.stdout, /no evidence recorded from then on/);
   assert.deepEqual(Object.keys(readEvidence(dir)), [ok], 'only the Gate before the rewrite counts');
+});
+
+test('a verified new file keeps its key through git add and commit', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-treekey-stage-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(dir, 'a.js'), 'a');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  fs.writeFileSync(path.join(dir, 'new.js'), 'built by the Subtask');
+  const verified = treeKey(dir);
+  git(dir, 'add', 'new.js');
+  assert.equal(treeKey(dir), verified, 'staging keeps the key');
+  git(dir, 'commit', '-q', '-m', 'feat: new');
+  assert.equal(treeKey(dir), verified, 'committing keeps the key');
+});
+
+test('fileModes takes unstaged mode changes over the index, and untrackedMode matches what git add gives', () => {
+  const staged = '100644 aaa 0\tsrc/run.sh\x00100644 bbb 0\tsrc/gone.js\x00';
+  const raw = ':100644 100755 aaa 0000000 M\x00src/run.sh\x00:100644 000000 bbb 0000000 D\x00src/gone.js\x00';
+  const modes = fileModes(staged, raw);
+  assert.equal(modes.get('src/run.sh'), '100755');
+  assert.equal(modes.get('src/gone.js'), '100644', 'a deletion keeps the index mode');
+  assert.equal(fileModes('160000 ccc 0\tvendor/lib\x00', ''), null);
+
+  const stat = (mode, link = false) => ({ mode, isSymbolicLink: () => link });
+  assert.equal(untrackedMode(stat(0o100755), true), '100755');
+  assert.equal(untrackedMode(stat(0o100755), false), '100644', 'core.fileMode off: git stages 100644');
+  assert.equal(untrackedMode(stat(0o100644), true), '100644');
+  assert.equal(untrackedMode(stat(0o120777, true), true), '120000');
+});
+
+test('toolchain probes node and rustc in the repo the Gates run in', () => {
+  const calls = [];
+  const spawn = (cmd, args, opts) => {
+    calls.push([cmd, opts.cwd]);
+    return cmd === 'rustc' ? { status: 1, stdout: '' } : { status: 0, stdout: 'v1.2.3\n' };
+  };
+  assert.deepEqual(toolchain('D:/repos/B', spawn), { node: 'v1.2.3', rustc: null });
+  assert.deepEqual(calls, [['node', 'D:/repos/B'], ['rustc', 'D:/repos/B']]);
+});
+
+test('run-gates.mjs records nothing after a failing Gate changed the tree, even if a later one restores it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-rungates-failchange-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  const breakIt = `node -e "require('fs').writeFileSync('gen.js', 'x'); process.exit(1)"`;
+  const restore = `node -e "require('fs').rmSync('gen.js', { force: true })"`;
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates: [breakIt, restore] }));
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'gates');
+  const before = treeKey(dir);
+  const r = spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/run-gates.mjs'), path.join(dir, '.git/factory/logs/FB-1/qa.log')], { cwd: dir, encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.equal(treeKey(dir), before, 'the second Gate restored the tree');
+  assert.deepEqual(readEvidence(dir), {}, 'the restoring Gate ran on a changed tree, so it proves nothing');
 });

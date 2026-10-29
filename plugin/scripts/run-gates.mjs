@@ -39,20 +39,20 @@ for (const cmd of config.gates) {
   const code = r.status ?? r.error?.code ?? 'killed';
   fs.appendFileSync(log, `$ ${cmd}\n${r.stdout ?? ''}${r.stderr ?? ''}\n[exit ${code}]\n\n`);
   console.log(ascii(`${code === 0 ? 'pass' : 'fail'}  ${cmd}  (exit ${code})`));
+  // Every Gate, pass or fail, is followed by a tree check: from the first
+  // change on, nothing more is recorded.
+  if (!changed && (!before || treeKey(root) !== before)) changed = true;
   if (code !== 0) {
     failed = true;
     forget(root, cmd);
-    continue;
-  }
-  if (!changed && before && treeKey(root) === before) {
+  } else if (!changed) {
     recordPass(root, cmd, before, tools, 'qa');
     recorded++;
-  } else {
-    changed = true;
   }
 }
 
 if (recorded) console.log(`evidence recorded for ${recorded} Gate(s) on tree ${before.slice(0, 12)}`);
-if (changed) console.log('The tree changed while the Gates ran: no evidence recorded from then on.');
+if (!before) console.log('No tree key here (a submodule, or git unreadable): no evidence recorded.');
+else if (changed) console.log('The tree changed while the Gates ran: no evidence recorded from then on.');
 console.log(`log: ${log}`);
 process.exit(failed ? 1 : 0);

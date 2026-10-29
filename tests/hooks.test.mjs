@@ -297,3 +297,32 @@ test('PR gate: a Gate that rewrites the tree leaves no evidence, so the next att
   assert.equal(out.status, 0, out.stderr);
   assert.equal(runs(), 2, 'nothing was recorded, so both Gates run again');
 });
+
+test('PR gate: a Gate that fails forgets its earlier pass', () => {
+  const trace = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-trace-')), 'runs.txt');
+  const gateCmd = `node -e "require('fs').appendFileSync(process.env.GATE_TRACE, 'x'); process.exit(require('fs').existsSync('BROKEN') ? 1 : 0)"`;
+  const r = repo({ boardKey: 'FB', branches: { integration: 'develop', production: 'main' }, gates: [gateCmd] });
+  const env = { GATE_TRACE: trace, FAKE_STORIES: JSON.stringify({ 'FB-11': 'legacy' }) };
+  const runs = () => (fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8').length : 0);
+  const create = () => runHook('pr-gate', 'gh pr create --base develop --title "feat: add e (FB-11)" --body x', r, env);
+  const evidence = () => JSON.parse(fs.readFileSync(path.join(r, '.git/factory/gates/evidence.json'), 'utf8'));
+
+  git(r, 'checkout', '-q', '-b', 'feat/FB-11-forget');
+  fs.writeFileSync(path.join(r, 'e.js'), 'e\n');
+  git(r, 'add', 'e.js');
+  git(r, 'commit', '-q', '-m', 'feat(e): add e');
+  assert.equal(create().status, 0);
+  assert.deepEqual(Object.keys(evidence()), [gateCmd]);
+
+  fs.writeFileSync(path.join(r, 'BROKEN'), '');
+  git(r, 'add', 'BROKEN');
+  git(r, 'commit', '-q', '-m', 'test: break e');
+  assert.match(create().stderr, /Gate failed/);
+  assert.deepEqual(evidence(), {}, 'the failure forgot the earlier pass');
+
+  git(r, 'rm', '-q', 'BROKEN');
+  git(r, 'commit', '-q', '-m', 'fix(e): unbreak e');
+  const before = runs();
+  assert.equal(create().status, 0);
+  assert.equal(runs(), before + 1, 'back on the passing tree, the Gate runs again');
+});
