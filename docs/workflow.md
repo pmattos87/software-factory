@@ -19,7 +19,8 @@ Every skill is invoked as `factory:<name>`. Most replace a user-level skill, whi
 | Plan → In integrated tests | `story-status` | `flowboard-issue` | Creates and moves Stories and Subtasks through the `flowboard` MCP |
 | Integrate | `integrate` | `ship` | Commits on the Feature branch, opens the PR into the integration branch, merges it once green, moves the Story to `integrated_tests` |
 | User testing, Production | `promote` | `release` | Cuts a picked Release's `release/vX.Y.Z` branch, tags betas for the client (Client projects), opens the PR into production, and after Pedro's merge tags, publishes the GitHub Release and marks the Release released |
-| User testing | `release-notes` | `release-notes` | Turns a Release (or one beta) into a client-facing slide deck with screenshots from staging; Client projects only |
+| User testing | `release-notes` | `release-notes` | Turns a Release (or one beta) into a client-facing PDF deck with screenshots from staging, printed from a local HTML shell and checked page by page; Client projects only |
+| User testing | `test-guide` | | Turns a Release (or one beta) into the client's step-by-step test guide, dry-run on staging and rendered as one self-contained HTML file; Client projects only |
 
 The Shape skills are verbatim copies of the originals, pinned to the Factory's version. `shape-map` carries its own tracker description ([TRACKER.md](../plugin/skills/shape-map/TRACKER.md)) in place of the dropped `setup-matt-pocock-skills`.
 
@@ -77,7 +78,7 @@ On an Internal project:
 
 On a Client project, **User testing** comes between 2 and 3:
 
-- After the cut, `promote` tags `vX.Y.Z-beta.1` on the Release branch, publishes it as a GitHub pre-release with its assets, and moves the Release to `user_testing`: its Stories go to the primary client contact. `factory:release-notes` turns it into a deck for the client.
+- After the cut, `promote` tags `vX.Y.Z-beta.1` on the Release branch, builds the assets, launches that build on staging, and runs `factory:release-notes` (the deck, as a PDF) and `factory:test-guide` (the test guide, as one HTML file). Pedro reviews both; only then is the beta published as a GitHub pre-release with the installer and both documents, and the Release moves to `user_testing`: its Stories go to the primary client contact. Beta 1's documents cover the whole Release; each later beta's cover only what changed since the previous one.
 - **A bug the client finds** becomes a bug Subtask, which sends the Story back to `building`. It's fixed on the Story's Feature branch, integrated and passed by Pedro (`tested`) as any fix. Then `promote` merges it into the Release branch, tags the next beta and returns the Story to `user_testing`. Once a beta exists, a removed pick is reverted, never re-cut.
 - When Pedro says the client approved the last beta, `promote` opens the PR into production, and goes on from step 3. The approved beta is what ships: the branch isn't synced once that PR is open.
 
