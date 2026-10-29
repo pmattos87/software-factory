@@ -13,6 +13,7 @@ import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/s
 import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
 import { git } from '../plugin/scripts/lib/git.mjs';
+import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -284,4 +285,34 @@ test('readUnreleased reads only what the integration branch has that production 
   const found = unreleasedOverlap(entries, ['thing.txt', 'direct.txt', 'base.txt'], 'FB');
   assert.deepEqual(found.map((g) => [g.story, g.files]), [[null, ['direct.txt']], ['FB-7', ['thing.txt']]]);
   assert.equal(readUnreleased(dir, { production: 'main', integration: 'nope' }), null);
+});
+
+test('checkNoop skips Verify only for a clean tree at the verified sha', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-noop-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'feat: a');
+  const verified = git(dir, 'rev-parse', 'HEAD');
+
+  assert.deepEqual(checkNoop(dir, verified), { skip: true, reason: `No change: tree clean, HEAD ${verified} already verified` });
+
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'changed');
+  assert.equal(checkNoop(dir, verified).skip, false);
+  git(dir, 'checkout', '-q', '--', 'a.txt');
+
+  fs.writeFileSync(path.join(dir, 'new.txt'), 'untracked');
+  assert.match(checkNoop(dir, verified).reason, /new\.txt/);
+  fs.rmSync(path.join(dir, 'new.txt'));
+
+  fs.writeFileSync(path.join(dir, 'b.txt'), 'b');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'feat: b');
+  assert.match(checkNoop(dir, verified).reason, /HEAD moved/);
+
+  assert.equal(checkNoop(dir, 'deadbeef').skip, false);
+  assert.equal(checkNoop(dir, undefined).skip, false);
+  assert.equal(checkNoop(path.join(dir, 'missing'), verified), null);
 });
