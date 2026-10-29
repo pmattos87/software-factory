@@ -12,13 +12,13 @@ import { spawnSync } from 'node:child_process';
 import { git } from './lib/git.mjs';
 import { loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { checkPullRequest } from './lib/conventions.mjs';
+import { DOCS } from './lib/gate-evidence.mjs';
 
 const { BASE_REF, HEAD_REF, BASE_SHA, HEAD_SHA, PR_TITLE, GITHUB_OUTPUT, GITHUB_EVENT_NAME } = process.env;
 const root = process.cwd();
 const config = loadConfig(root);
 if (!config?.boardKey) fail(`${CONFIG_PATH} with a boardKey is missing; the Factory can't tell which checks to run.`);
 
-const DOCS = /(^docs\/|\.md$|^LICENSE)/;
 
 switch (process.argv[2]) {
   case 'plan': {

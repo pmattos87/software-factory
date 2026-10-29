@@ -14,6 +14,7 @@ import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } f
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
 import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
+import { treeKey, matchingEvidence, readEvidence } from '../plugin/scripts/lib/gate-evidence.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
 import { findBrowser, browserCandidates, printArgs, printPdf } from '../plugin/scripts/lib/browser.mjs';
@@ -566,4 +567,89 @@ test('srcset candidates keep data URLs whole, and inlining twice changes nothing
 test('the guide shell hides what the empty state hides, whatever display a part sets', () => {
   const shell = fs.readFileSync(path.resolve(import.meta.dirname, '../plugin/skills/test-guide/guide-shell.html'), 'utf8');
   assert.match(shell, /\[hidden\] \{ display: none !important; \}/);
+});
+
+test('treeKey ignores doc-only paths and changes for everything else', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-treekey-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  fs.mkdirSync(path.join(dir, 'docs'));
+  fs.mkdirSync(path.join(dir, 'src'));
+  fs.writeFileSync(path.join(dir, 'src/a.js'), 'a');
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{}');
+  fs.writeFileSync(path.join(dir, 'docs/guide.md'), 'g');
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'dist/\n');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  const base = treeKey(dir);
+  assert.match(base, /^[0-9a-f]{64}$/);
+
+  fs.writeFileSync(path.join(dir, 'docs/guide.md'), 'changed');
+  fs.writeFileSync(path.join(dir, 'NOTES.md'), 'new doc');
+  fs.mkdirSync(path.join(dir, 'dist'));
+  fs.writeFileSync(path.join(dir, 'dist/out.js'), 'ignored');
+  assert.equal(treeKey(dir), base, 'docs, a new .md and ignored files keep the key');
+
+  const changes = [
+    () => fs.writeFileSync(path.join(dir, 'src/a.js'), 'a2'),
+    () => fs.writeFileSync(path.join(dir, 'src/new.js'), 'untracked'),
+    () => fs.rmSync(path.join(dir, 'src/a.js')),
+    () => fs.writeFileSync(path.join(dir, 'package-lock.json'), '{"v":2}'),
+  ];
+  for (const change of changes) {
+    git(dir, 'checkout', '-q', '--', '.');
+    fs.rmSync(path.join(dir, 'src/new.js'), { force: true });
+    assert.equal(treeKey(dir), base);
+    change();
+    assert.notEqual(treeKey(dir), base, String(change));
+  }
+  assert.equal(treeKey(path.join(dir, 'missing')), null);
+});
+
+test('matchingEvidence needs the same command, key and toolchain', () => {
+  const tools = { node: 'v24', rustc: 'rustc 1.90' };
+  const evidence = { 'npm test': { key: 'k1', toolchain: tools, by: 'qa', at: 'now' } };
+  assert.equal(matchingEvidence(evidence, 'npm test', 'k1', tools).by, 'qa');
+  assert.equal(matchingEvidence(evidence, 'npm test', 'k2', tools), null);
+  assert.equal(matchingEvidence(evidence, 'npm run test', 'k1', tools), null);
+  assert.equal(matchingEvidence(evidence, 'npm test', 'k1', { ...tools, node: 'v25' }), null);
+  assert.equal(matchingEvidence(evidence, 'npm test', 'k1', { ...tools, rustc: null }), null);
+  assert.equal(matchingEvidence(evidence, 'npm test', null, tools), null);
+});
+
+test('run-gates.mjs logs every Gate and records evidence only for passes on an unchanged tree', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-rungates-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  const setGates = (gates) => {
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates }));
+  };
+  const ok = 'node -e "console.log(\'all good\')"';
+  const bad = 'node -e "console.error(\'test x failed\'); process.exit(3)"';
+  const rewrite = 'node -e "require(\'fs\').writeFileSync(\'gen.js\', String(Date.now()))"';
+  const run = () => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/run-gates.mjs'), path.join(dir, '.git/factory/logs/FB-1/qa-1.log')], { cwd: dir, encoding: 'utf8' });
+  const evidence = () => readEvidence(dir);
+
+  setGates([ok, bad]);
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  let r = run();
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^fail .*\(exit 3\)$/m);
+  const log = fs.readFileSync(path.join(dir, '.git/factory/logs/FB-1/qa-1.log'), 'utf8');
+  assert.match(log, /all good\n[\s\S]*\[exit 0\]/);
+  assert.match(log, /test x failed\n[\s\S]*\[exit 3\]/);
+  assert.deepEqual(Object.keys(evidence()), [ok]);
+  assert.equal(evidence()[ok].key, treeKey(dir));
+  assert.equal(evidence()[ok].by, 'qa');
+
+  setGates([rewrite]);
+  fs.rmSync(path.join(dir, '.git/factory/gates'), { recursive: true });
+  r = run();
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /tree changed while the Gates ran/);
+  assert.deepEqual(evidence(), {});
 });
