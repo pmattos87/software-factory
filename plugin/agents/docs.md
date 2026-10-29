@@ -19,7 +19,18 @@ The project decides which documents it keeps; its `CLAUDE.md` names them. Typica
 
 - `README.md` and any guide whose claims the diff changed (commands, config keys, behavior).
 - `CONTEXT.md`, when the Story introduced or sharpened a domain term.
-- The project's progress or changelog file, when it keeps one.
+- The project's progress file, when it keeps one.
+- **The changelog, through the Story's own file.** When `.claude/factory.json` sets `release.changelog`, write this Story's entry to `docs/changes/<KEY>.md` and never edit the changelog itself: promote assembles the version's section from the picked Stories' files at release, so two Stories never conflict on it. The file holds Keep a Changelog subsections, with no text before the first heading:
+
+  ```
+  ### Added
+  - What the Story added, in the changelog's own style (<KEY>).
+
+  ### Fixed
+  - ...
+  ```
+
+  Use only the subsections the Story needs (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`). The file already exists when a bug Subtask reopened the Story: update it. Without `release.changelog`, the project keeps no assembled changelog; follow its `CLAUDE.md`.
 - An ADR, only when the brief records a decision that has none yet. Never edit an accepted ADR's decision: amend it with a dated note or supersede it.
 
 Read each document before editing it, and change only what the diff made untrue or incomplete. A Story that changed nothing a document claims needs no docs change: say so.
