@@ -81,6 +81,9 @@
 
   * { box-sizing: border-box; }
 
+  /* The empty state hides parts that set their own display. */
+  [hidden] { display: none !important; }
+
   body {
     margin: 0;
     background: var(--bg);

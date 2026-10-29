@@ -23,11 +23,40 @@ const ATTR = /\b(src|href|srcset|poster|data)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s
 // Links load nothing until clicked.
 const LINKS = new Set(['a', 'area']);
 
+// A srcset's candidates, as the HTML spec splits them: a URL is a run of
+// non-space characters (so a data: URL keeps its comma), and a candidate ends
+// at a comma after its descriptors or at commas closing its URL.
+export function srcsetCandidates(value) {
+  const out = [];
+  let i = 0;
+  while (i < value.length) {
+    while (i < value.length && /[\s,]/.test(value[i])) i++;
+    if (i >= value.length) break;
+    let j = i;
+    while (j < value.length && !/\s/.test(value[j])) j++;
+    let url = value.slice(i, j);
+    let descriptor = '';
+    if (/,$/.test(url)) {
+      url = url.replace(/,+$/, '');
+    } else {
+      let k = j;
+      while (k < value.length && value[k] !== ',') k++;
+      descriptor = value.slice(j, k).trim();
+      j = k;
+    }
+    out.push({ url, descriptor });
+    i = j;
+  }
+  return out;
+}
+
+const joinSrcset = (candidates) => candidates.map((c) => (c.descriptor ? `${c.url} ${c.descriptor}` : c.url)).join(', ');
+
 // Each URL a tag attribute loads: one for src/href/poster/data, one per
 // candidate for srcset ("a.png 1x, b.png 2x").
 function attrUrls(name, value) {
   if (name.toLowerCase() !== 'srcset') return [value.trim()];
-  return value.split(',').map((c) => c.trim().split(/\s+/)[0]).filter(Boolean);
+  return srcsetCandidates(value).map((c) => c.url);
 }
 
 // Calls `fn(url)` for every reference that would load when the page opens,
@@ -46,9 +75,12 @@ function eachRef(html, fn) {
     if (LINKS.has(name.toLowerCase())) return tag;
     const rewritten = attrs.replace(ATTR, (all, attr, dq, sq, bare) => {
       const value = dq ?? sq ?? bare;
-      const next = attr.toLowerCase() === 'srcset'
-        ? value.split(',').map((c) => c.trim().replace(/^\S+/, (u) => swap(u))).join(', ')
-        : swap(value.trim());
+      if (attr.toLowerCase() === 'srcset') {
+        const candidates = srcsetCandidates(value);
+        const swapped = candidates.map((c) => ({ ...c, url: swap(c.url) }));
+        return swapped.some((c, n) => c.url !== candidates[n].url) ? `${attr}="${joinSrcset(swapped)}"` : all;
+      }
+      const next = swap(value.trim());
       return next === value ? all : `${attr}="${next}"`;
     });
     return `<${name}${rewritten}>`;

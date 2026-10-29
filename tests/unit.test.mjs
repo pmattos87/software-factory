@@ -17,7 +17,7 @@ import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
 import { findBrowser, browserCandidates, printArgs, printPdf } from '../plugin/scripts/lib/browser.mjs';
-import { inlineAssets, remoteRefs, unfilledSlots } from '../plugin/scripts/lib/inline.mjs';
+import { inlineAssets, remoteRefs, unfilledSlots, srcsetCandidates } from '../plugin/scripts/lib/inline.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -547,4 +547,23 @@ test('contact-sheet.py renders every page of a PDF into one image', { skip: !has
   const head = fs.readFileSync(png).subarray(0, 24);
   assert.equal(head.subarray(1, 4).toString(), 'PNG');
   assert.equal(head.readUInt32BE(16), 2 * 320 + 3 * 24, 'two columns of 320px with 24px gaps');
+});
+
+test('srcset candidates keep data URLs whole, and inlining twice changes nothing more', () => {
+  const data = 'data:image/png;base64,QQ==';
+  assert.deepEqual(srcsetCandidates(`${data} 1x, b.png 2x`), [{ url: data, descriptor: '1x' }, { url: 'b.png', descriptor: '2x' }]);
+  assert.deepEqual(srcsetCandidates('a.png, b.png 480w,c.png'), [{ url: 'a.png', descriptor: '' }, { url: 'b.png', descriptor: '480w' }, { url: 'c.png', descriptor: '' }]);
+  assert.deepEqual(srcsetCandidates('data:image/svg+xml,%3Csvg%3E,x 2x'), [{ url: 'data:image/svg+xml,%3Csvg%3E,x', descriptor: '2x' }]);
+  assert.deepEqual(remoteRefs(`<img srcset="${data} 1x, https://x.test/b.png 2x">`), ['https://x.test/b.png']);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-inline-twice-'));
+  fs.writeFileSync(path.join(dir, 'a.png'), 'A');
+  const once = inlineAssets('<img srcset="a.png 1x, a.png 2x" src=a.png>', dir).html;
+  assert.equal(once, `<img srcset="${data} 1x, ${data} 2x" src="${data}">`);
+  assert.equal(inlineAssets(once, dir).html, once);
+});
+
+test('the guide shell hides what the empty state hides, whatever display a part sets', () => {
+  const shell = fs.readFileSync(path.resolve(import.meta.dirname, '../plugin/skills/test-guide/guide-shell.html'), 'utf8');
+  assert.match(shell, /\[hidden\] \{ display: none !important; \}/);
 });
