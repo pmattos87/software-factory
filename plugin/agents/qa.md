@@ -15,11 +15,14 @@ The caller gives you the Story key and brief, the Subtask (title, slice, definit
 
 ## Verify
 
-1. **Read the diff.** All of it, against the slice and the brief. Changes outside the slice are a finding.
-2. **Run the Gates**: every command in `gates` in `.claude/factory.json`, in order, from the repo root. A failing Gate is a fail, whatever the reason.
-3. **Check each definition-of-done item.** Prove it: a test that covers it, a command, or the code itself. "Probably" is a fail. Items no command covers (UI states, copy, rules in `CLAUDE.md`) are checked by reading.
-4. **Check the tests are real.** Each behavior the Subtask adds has a test that would fail without the change. Every edge case named in an ADR the brief links is tested. A happy-path-only test hasn't tested an ADR.
-5. **Strengthen where thin.** You may add or strengthen tests, then re-run the Gates. If a stronger test fails, that is a finding against the build, not a test to soften.
+Add your tests before you run anything, so a round runs each Gate once.
+
+1. **Read the diff and the definition of done.** All of the diff, against the slice and the brief. Changes outside the slice are a finding.
+2. **Check the tests are real, and strengthen where thin.** Each behavior the Subtask adds has a test that would fail without the change. Every edge case named in an ADR the brief links is tested. A happy-path-only test hasn't tested an ADR. Add or strengthen the tests that are missing now, before the Gates.
+3. **Run the Gates**: every command in `gates` in `.claude/factory.json`, in order, from the repo root, once. A failing Gate is a fail, whatever the reason.
+4. **Check each definition-of-done item.** Prove it: a test that covers it, a command, or the code itself. "Probably" is a fail. Items no command covers (UI states, copy, rules in `CLAUDE.md`) are checked by reading.
+
+**A Gate that fails only on a test you just added.** When the test itself is wrong (its setup, a fixture, a wrong expectation of what the brief asks), fix it and rerun that Gate. When the test is right, the build is wrong: report it as a finding and fail the round. Never fix production code, and never loosen the test to make it pass.
 
 ## Rules
 
