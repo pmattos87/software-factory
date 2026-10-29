@@ -104,8 +104,15 @@ After the last Subtask passes, the code the Story wrote gets one cleanup pass, b
      - Only code this Story added or changed was touched.
      - Out-of-scope findings are listed in the result's noticed line, not fixed.
    ```
-2. **Build it as in step 4**, items 1 to 6: handoff, build, Verify, its own 2 rounds. The handoff to `factory:simplify` also carries the Story's diff against production.
-3. **Nothing to simplify**: when the builder changed no files and QA passes it, `subtask_move` it to `done` with nothing to commit, and say so in the report.
+2. **Hand it off and build it** as in step 4, items 1 to 4. The handoff to `factory:simplify` also carries the Story's diff against production. Record `git rev-parse HEAD` just before the handoff: every Subtask before it has passed Verify, so that commit is verified.
+3. **Check for no change, before any Verify.** When Simplify hands back, run, from the repo root:
+
+   ```
+   node "<this skill's base directory>/../../scripts/check-noop.mjs" <the sha you recorded>
+   ```
+
+   - **Exit 0**: the tree is clean (no tracked or untracked change) and HEAD is still that sha. Skip QA: `subtask_verify` with `passed` and the line it printed as the reason (`No change: tree clean, HEAD <sha> already verified`), then `subtask_move` it to `done` with nothing to commit, and say so in the report.
+   - **Exit 1 or 2**: Verify it as in step 4, items 5 and 6, with its own 2 rounds, whatever Simplify's result says. A retry goes back to item 3 of step 4 and then to this check again.
 
 A `done` Simplify Subtask is never filed or built again; go on to Docs.
 
@@ -128,7 +135,7 @@ End with the Story key and where it stands, then one line per Subtask: key, buil
 ## Guardrails
 
 - **Never edit code, tests or docs yourself**, not even a one-line fix between rounds. Your writes are the board, commits and the branch.
-- Never weaken a Gate, skip Verify or Review, or pass a Subtask QA failed.
+- Never weaken a Gate, skip Verify or Review, or pass a Subtask QA failed. The one exception is a Simplify pass that `check-noop.mjs` reports as no change (step 5.3): it leaves the verified commit as it was, so there is nothing new to Verify.
 - Never force-push, rewrite a pushed branch, or commit on the integration or production branch (the hooks block it anyway).
 - A refused board call stops the Run step it belongs to: report it, never work around it (see `factory:story-status`).
 - Windows: keep any scripted output ASCII-only.
