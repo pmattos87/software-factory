@@ -17,7 +17,7 @@ function runHook(hook, command, cwd, env = {}) {
     encoding: 'utf8',
     env: { ...process.env, ...env },
   });
-  return { blocked: r.status === 2, status: r.status, stderr: r.stderr };
+  return { blocked: r.status === 2, status: r.status, stderr: r.stderr, stdout: r.stdout };
 }
 
 const git = (dir, ...args) => {
@@ -217,4 +217,60 @@ test('PR gate: a Feature branch needs a passed Review on its head', () => {
   const rel = create('Release v1.2.0', 'main');
   assert.ok(!rel.blocked, rel.stderr);
   git(dir, 'checkout', '-q', 'main');
+});
+
+test('PR gate: a Gate QA verified on this tree is skipped and reported; anything else runs', () => {
+  const trace = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-trace-')), 'runs.txt');
+  const gateCmd = 'node -e "require(\'fs\').appendFileSync(process.env.GATE_TRACE, \'x\'); process.exit(require(\'fs\').existsSync(\'BROKEN\') ? 1 : 0)"';
+  const r = repo({ boardKey: 'FB', branches: { integration: 'develop', production: 'main' }, gates: [gateCmd] });
+  const env = { GATE_TRACE: trace, FAKE_STORIES: JSON.stringify({ 'FB-9': 'legacy' }) };
+  const runs = () => (fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8').length : 0);
+  const create = () => runHook('pr-gate', 'gh pr create --base develop --title "feat: add c (FB-9)" --body x', r, env);
+  const commit = (file, text, msg) => {
+    fs.mkdirSync(path.dirname(path.join(r, file)), { recursive: true });
+    fs.writeFileSync(path.join(r, file), text);
+    git(r, 'add', file);
+    git(r, 'commit', '-q', '-m', msg);
+  };
+  const qa = () => spawnSync('node', [path.join(SCRIPTS, 'run-gates.mjs'), path.join(r, '.git/factory/logs/FB-9/qa.log')], { cwd: r, encoding: 'utf8', env: { ...process.env, ...env } });
+
+  git(r, 'checkout', '-q', '-b', 'feat/FB-9-evidence');
+  commit('c.js', 'c\n', 'feat(c): add c');
+  assert.equal(qa().status, 0);
+  assert.equal(runs(), 1);
+
+  let out = create();
+  assert.ok(!out.blocked, out.stderr);
+  assert.equal(runs(), 1, 'the verified Gate is not run again');
+  assert.match(JSON.parse(out.stdout).systemMessage, /\[factory:pr-gate\] skipped `node -e .*`: passed on this tree \([0-9a-f]{12}, doc-only paths aside\) in qa at /);
+  assert.match(fs.readFileSync(path.join(r, '.git/factory/gates/pr-gate.log'), 'utf8'), /feat\/FB-9-evidence|[0-9a-f]{40}/);
+
+  commit('docs/c.md', 'about c\n', 'docs: describe c');
+  out = create();
+  assert.ok(!out.blocked, out.stderr);
+  assert.equal(runs(), 1, 'a Docs commit on a verified tree still skips');
+
+  commit('c.js', 'c2\n', 'fix(c): change c');
+  out = create();
+  assert.ok(!out.blocked, out.stderr);
+  assert.equal(runs(), 2, 'a code change runs the Gate');
+  assert.equal(out.stdout, '', 'nothing skipped, nothing reported');
+  out = create();
+  assert.equal(runs(), 2, "the PR gate's own pass is reused");
+
+  // A merge resolution brings in other work: a new tree, so the Gate runs.
+  git(r, 'checkout', '-q', 'develop');
+  commit('d.js', 'd\n', 'feat(d): add d');
+  git(r, 'checkout', '-q', '-b', 'feat/FB-9-evidence-merge');
+  git(r, 'merge', '-q', '--no-ff', '-m', 'chore: merge feat/FB-9-evidence into develop', 'feat/FB-9-evidence');
+  out = create();
+  assert.ok(!out.blocked, out.stderr);
+  assert.equal(runs(), 3, 'a merge resolution runs the Gate');
+
+  // A failing tree never matches a pass, so the Gate runs and blocks.
+  git(r, 'checkout', '-q', 'feat/FB-9-evidence');
+  commit('BROKEN', '', 'test: break the gate');
+  out = create();
+  assert.match(out.stderr, /Gate failed/);
+  assert.equal(runs(), 4);
 });

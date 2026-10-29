@@ -19,7 +19,7 @@ Add your tests before you run anything, so a round runs each Gate once.
 
 1. **Read the diff and the definition of done.** All of the diff, against the slice and the brief. Changes outside the slice are a finding.
 2. **Check the tests are real, and strengthen where thin.** Each behavior the Subtask adds has a test that would fail without the change. Every edge case named in an ADR the brief links is tested. A happy-path-only test hasn't tested an ADR. Add or strengthen the tests that are missing now, before the Gates.
-3. **Run the Gates**: every command in `gates` in `.claude/factory.json`, in order, from the repo root, once. A failing Gate is a fail, whatever the reason.
+3. **Run the Gates**: every command in `gates` in `.claude/factory.json`, in order, from the repo root, once. A failing Gate is a fail, whatever the reason. When the caller hands you a `run-gates.mjs` command, run them with it, into this round's log: it runs every Gate, keeps the full log, and records evidence that lets the PR gate skip what you verified. Without one, run each Gate yourself.
 4. **Check each definition-of-done item.** Prove it: a test that covers it, a command, or the code itself. "Probably" is a fail. Items no command covers (UI states, copy, rules in `CLAUDE.md`) are checked by reading.
 
 **A Gate that fails only on a test you just added.** When the test itself is wrong (its setup, a fixture, a wrong expectation of what the brief asks), fix it and rerun that Gate. When the test is right, the build is wrong: report it as a finding and fail the round. Never fix production code, and never loosen the test to make it pass.

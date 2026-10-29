@@ -1,8 +1,12 @@
 // Factory hook: no `gh pr create` unless the PR follows the conventions, a
 // Feature branch's Story has a passed Review on the branch head, and the
-// project's gates pass on the branch. There is no override: shipping without
+// project's gates pass on the branch. A Gate with evidence it already passed
+// on this tree (QA's run-gates.mjs, or an earlier PR gate) is skipped and
+// reported; CI still runs every Gate. There is no override: shipping without
 // Review is Pedro's, from his own terminal.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { readToolCall, block } from './lib/hook.mjs';
 import { invocations } from './lib/shell.mjs';
@@ -10,13 +14,18 @@ import { git, repoRoot, currentBranch } from './lib/git.mjs';
 import { loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { checkPullRequest, isReleaseBranch, parseFeatureBranch } from './lib/conventions.mjs';
 import { findFlowboardCli, checkReview } from './lib/review.mjs';
+import { treeKey, toolchain, readEvidence, recordPass, matchingEvidence } from './lib/gate-evidence.mjs';
 
 const { command, cwd } = readToolCall();
 if (!/\bgh\b/.test(command)) process.exit(0);
 
+const skipped = [];
 for (const inv of invocations(command, cwd)) {
   if (inv.tool === 'gh' && inv.sub === 'pr' && inv.args[0] === 'create') gate(inv.dir, flags(inv.args.slice(1)));
 }
+// Tell Pedro what wasn't re-run. A message only, never a permission decision:
+// the PR still goes through the normal permission flow.
+if (skipped.length) process.stdout.write(JSON.stringify({ systemMessage: `[factory:pr-gate] ${skipped.join('; ')}` }));
 
 function gate(dir, opts) {
   const root = repoRoot(dir);
@@ -40,12 +49,27 @@ function gate(dir, opts) {
   // A Release branch carries Stories already reviewed on their own branches.
   if (!isReleaseBranch(head)) requireReview(parseFeatureBranch(head, config.boardKey).story, reviewedHead(root, baseRef));
 
+  // A Gate already passed on this exact tree (doc-only paths aside), command and
+  // toolchain is not run again; anything else runs, and a pass is recorded.
+  const key = treeKey(root);
+  const tools = toolchain();
+  const evidence = readEvidence(root);
   for (const cmd of config.gates) {
+    const e = matchingEvidence(evidence, cmd, key, tools);
+    if (e) {
+      skipped.push(`skipped \`${cmd}\`: passed on this tree (${key.slice(0, 12)}, doc-only paths aside) in ${e.by} at ${e.at}`);
+      continue;
+    }
     const r = spawnSync(cmd, { cwd: root, shell: true, encoding: 'utf8' });
     if (r.status !== 0) {
       const output = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-40).join('\n');
       block('pr-gate', `Gate failed: \`${cmd}\` (exit ${r.status}). Fix it before opening the PR.\n${output}`);
     }
+    recordPass(root, cmd, key, tools, 'pr-gate');
+  }
+  if (skipped.length) {
+    const log = git(root, 'rev-parse', '--git-path', 'factory/gates/pr-gate.log');
+    if (log) fs.appendFileSync(path.resolve(root, log), `${new Date().toISOString()} ${head}\n${skipped.map((s) => `  ${s}\n`).join('')}`);
   }
 }
 
