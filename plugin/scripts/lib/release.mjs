@@ -1,6 +1,6 @@
 // A Consumer project's release settings (the `release` key of .claude/factory.json):
-// which files carry its version, how its release assets are built, and, on a
-// Client project, what its release notes need. Read by the promote skill.
+// which files carry its version, how its release assets are built, where its
+// changelog is, and, on a Client project, what its release notes need. Read by the promote skill.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,6 +14,7 @@ export function releaseSettings(raw = {}) {
     versionFiles: raw.versionFiles ?? [],
     assets: { build: raw.assets?.build ?? [], files: raw.assets?.files ?? [] },
     notes: raw.notes ?? null,
+    changelog: raw.changelog ?? null,
   };
 }
 
@@ -71,5 +72,6 @@ export function checkRelease(root, settings, { client = false } = {}) {
   }
   const guide = settings.notes?.guide;
   if (guide && !fs.existsSync(path.join(root, guide))) problems.push(`release.notes.guide ${guide} doesn't exist`);
+  if (settings.changelog && !fs.existsSync(path.join(root, settings.changelog))) problems.push(`release.changelog ${settings.changelog} doesn't exist`);
   return problems;
 }
