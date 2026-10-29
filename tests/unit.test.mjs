@@ -16,7 +16,7 @@ import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
-import { findBrowser, browserCandidates, printArgs } from '../plugin/scripts/lib/browser.mjs';
+import { findBrowser, browserCandidates, printArgs, printPdf } from '../plugin/scripts/lib/browser.mjs';
 import { inlineAssets, remoteRefs, unfilledSlots } from '../plugin/scripts/lib/inline.mjs';
 
 test('splitCommands honors quotes and separators', () => {
@@ -470,4 +470,81 @@ test('the shipped guide shell loads nothing from the network', () => {
   assert.ok(unfilledSlots(shell).includes('{{fonts/display.woff2}}'));
   assert.deepEqual(unfilledSlots('<!doctype html>\n<!-- fill every {{...}} slot -->\n<p>done</p>'), []);
   assert.deepEqual(unfilledSlots('<p>{{Project}} and {{Project}}</p>'), ['{{Project}}']);
+});
+
+test('remoteRefs and inlineAssets handle unquoted attributes, srcset and poster', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-inline-forms-'));
+  fs.writeFileSync(path.join(dir, 'a.png'), 'A');
+  fs.writeFileSync(path.join(dir, 'b.png'), 'B');
+  const remote = '<img src=https://x.test/logo.png alt="">\n<img srcset="local.png 1x, https://x.test/big.png 2x">\n<video poster=\'//cdn.x.test/p.jpg\'></video>\n<a href=https://x.test/help>help</a>';
+  assert.deepEqual(remoteRefs(remote).sort(), ['//cdn.x.test/p.jpg', 'https://x.test/big.png', 'https://x.test/logo.png']);
+
+  const { html, inlined } = inlineAssets('<img src=a.png alt="">\n<img srcset="a.png 1x, b.png 2x">', dir);
+  assert.deepEqual(inlined.sort(), ['a.png', 'b.png']);
+  assert.match(html, /<img src="data:image\/png;base64,QQ==" alt="">/);
+  assert.match(html, /srcset="data:image\/png;base64,QQ== 1x, data:image\/png;base64,Qg== 2x"/);
+  assert.deepEqual(remoteRefs(html), []);
+});
+
+test('printPdf waits for a PDF the browser writes late, and reports a print that never comes', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-print-test-'));
+  const html = path.join(dir, 'deck #1.html');
+  fs.writeFileSync(html, '<p>x</p>');
+  let seen;
+  const late = (bin, args) => {
+    seen = args;
+    const out = args.find((a) => a.startsWith('--print-to-pdf=')).slice('--print-to-pdf='.length);
+    setTimeout(() => fs.writeFileSync(out, '%PDF-1.7'), 150);
+    return { status: 0, stderr: '' };
+  };
+  const ok = await printPdf({ html, pdf: path.join(dir, 'out.pdf'), browser: 'C:/fake/msedge.exe', spawn: late, waitMs: 3000, pollMs: 50 });
+  assert.equal(ok.ok, true, ok.message);
+  assert.match(ok.message, /printed with msedge\.exe/);
+  assert.match(seen.at(-1), /deck%20%231\.html$/);
+  assert.ok(!fs.existsSync(seen.find((a) => a.startsWith('--user-data-dir=')).slice('--user-data-dir='.length)), 'the private profile is removed');
+
+  const never = () => ({ status: 1, stderr: 'line one\nboom' });
+  const failed = await printPdf({ html, pdf: path.join(dir, 'none.pdf'), browser: 'C:/fake/chrome.exe', spawn: never, waitMs: 200, pollMs: 50 });
+  assert.equal(failed.ok, false);
+  assert.match(failed.message, /Print failed \(exit 1\): line one \| boom/);
+});
+
+test('inline-assets.mjs exits 0 only for a self-contained, filled document', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-inline-cli-'));
+  fs.writeFileSync(path.join(dir, 'f.woff2'), 'F');
+  const run = (body) => {
+    fs.writeFileSync(path.join(dir, 'in.html'), body);
+    return spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/inline-assets.mjs'), path.join(dir, 'in.html'), path.join(dir, 'out.html')], { encoding: 'utf8' });
+  };
+  let r = run('<style>@font-face { src: url(f.woff2) }</style><p>ok</p>');
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /1 file\(s\) embedded/);
+  assert.match(fs.readFileSync(path.join(dir, 'out.html'), 'utf8'), /data:font\/woff2;base64,Rg==/);
+
+  r = run('<img src=https://x.test/a.png>');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^network https:\/\/x\.test\/a\.png$/m);
+  r = run('<img src="gone.png">');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^missing gone\.png$/m);
+  r = run('<p>{{Project}}</p>');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^unfilled \{\{Project\}\}$/m);
+});
+
+const PYTHON = process.env.FACTORY_PYTHON || 'python';
+const hasPymupdf = spawnSync(PYTHON, ['-I', '-c', 'import pymupdf'], { encoding: 'utf8' }).status === 0;
+
+test('contact-sheet.py renders every page of a PDF into one image', { skip: !hasPymupdf && 'needs Python with pymupdf (set FACTORY_PYTHON)' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-sheet-'));
+  const pdf = path.join(dir, 'deck.pdf');
+  const png = path.join(dir, 'sheet.png');
+  const make = `import pymupdf, sys\nd = pymupdf.open()\nfor i in range(4):\n    d.new_page(width=1920, height=1080).insert_text((100, 200), f"Slide {i + 1}", fontsize=80)\nd.save(sys.argv[1])`;
+  assert.equal(spawnSync(PYTHON, ['-I', '-c', make, pdf]).status, 0);
+  const r = spawnSync(PYTHON, ['-I', path.resolve(import.meta.dirname, '../plugin/skills/release-notes/scripts/contact-sheet.py'), pdf, png, '2', '320'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /: 4 pages$/m);
+  const head = fs.readFileSync(png).subarray(0, 24);
+  assert.equal(head.subarray(1, 4).toString(), 'PNG');
+  assert.equal(head.readUInt32BE(16), 2 * 320 + 3 * 24, 'two columns of 320px with 24px gaps');
 });

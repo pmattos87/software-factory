@@ -15,21 +15,58 @@ const TYPES = {
 const REMOTE = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i;
 const SKIP = /^(?:data:|#|javascript:|mailto:|tel:|about:)/i;
 
-// References a document makes: CSS url(...), and src/href attributes.
-const REFS = [
-  /url\(\s*(['"]?)([^'")]+)\1\s*\)/g,
-  /\b(?:src|href)\s*=\s*(["'])([^"']+)\1/g,
-];
+const CSS_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
+const CSS_IMPORT = /@import\s+(['"])([^'"]+)\1/g;
+const TAG = /<([a-z][\w-]*)\b([^>]*)>/gi;
+// An attribute that loads something, quoted or not: src="x", src='x', src=x.
+const ATTR = /\b(src|href|srcset|poster|data)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
+// Links load nothing until clicked.
+const LINKS = new Set(['a', 'area']);
+
+// Each URL a tag attribute loads: one for src/href/poster/data, one per
+// candidate for srcset ("a.png 1x, b.png 2x").
+function attrUrls(name, value) {
+  if (name.toLowerCase() !== 'srcset') return [value.trim()];
+  return value.split(',').map((c) => c.trim().split(/\s+/)[0]).filter(Boolean);
+}
+
+// Calls `fn(url)` for every reference that would load when the page opens,
+// and replaces it with what `fn` returns (or leaves it when that is null).
+function eachRef(html, fn) {
+  const swap = (url) => fn(url) ?? url;
+  let out = html.replace(CSS_URL, (all, q, ref) => {
+    const next = fn(ref.trim());
+    return next ? `url("${next}")` : all;
+  });
+  out = out.replace(CSS_IMPORT, (all, q, ref) => {
+    const next = fn(ref.trim());
+    return next ? `@import "${next}"` : all;
+  });
+  return out.replace(TAG, (tag, name, attrs) => {
+    if (LINKS.has(name.toLowerCase())) return tag;
+    const rewritten = attrs.replace(ATTR, (all, attr, dq, sq, bare) => {
+      const value = dq ?? sq ?? bare;
+      const next = attr.toLowerCase() === 'srcset'
+        ? value.split(',').map((c) => c.trim().replace(/^\S+/, (u) => swap(u))).join(', ')
+        : swap(value.trim());
+      return next === value ? all : `${attr}="${next}"`;
+    });
+    return `<${name}${rewritten}>`;
+  });
+}
 
 // Network references left in a document: what the page would load from
 // elsewhere when opened. A plain link (<a href>) loads nothing until clicked,
 // so it doesn't count.
 export function remoteRefs(html) {
   const found = new Set();
-  const add = (ref) => REMOTE.test(ref.trim()) && found.add(ref.trim());
-  for (const m of html.matchAll(REFS[0])) add(m[2]);
-  for (const m of html.matchAll(/<(\w+)\b[^>]*?\b(?:src|href)\s*=\s*(["'])([^"']+)\2/gi)) if (m[1].toLowerCase() !== 'a') add(m[3]);
-  for (const m of html.matchAll(/@import\s+(['"])([^'"]+)\1/g)) add(m[2]);
+  const add = (ref) => REMOTE.test(ref) && found.add(ref);
+  for (const m of html.matchAll(CSS_URL)) add(m[2].trim());
+  for (const m of html.matchAll(CSS_IMPORT)) add(m[2].trim());
+  for (const [, name, attrs] of html.matchAll(TAG)) {
+    if (LINKS.has(name.toLowerCase())) continue;
+    for (const [, attr, dq, sq, bare] of attrs.matchAll(ATTR)) attrUrls(attr, dq ?? sq ?? bare).forEach(add);
+  }
   return [...found];
 }
 
@@ -38,26 +75,18 @@ export function remoteRefs(html) {
 export function inlineAssets(html, baseDir) {
   const inlined = new Set();
   const missing = new Set();
-  const toData = (ref) => {
-    const clean = ref.trim().split(/[?#]/)[0];
-    if (!clean || SKIP.test(clean) || REMOTE.test(clean)) return null;
+  const out = eachRef(html, (ref) => {
+    const clean = ref.split(/[?#]/)[0];
+    if (!clean || SKIP.test(ref) || REMOTE.test(ref)) return null;
     const type = TYPES[path.extname(clean).toLowerCase()];
     if (!type) return null;
     const file = path.resolve(baseDir, decodeURIComponent(clean));
     if (!fs.existsSync(file)) {
-      missing.add(ref.trim());
+      missing.add(ref);
       return null;
     }
-    inlined.add(ref.trim());
+    inlined.add(ref);
     return `data:${type};base64,${fs.readFileSync(file).toString('base64')}`;
-  };
-  let out = html.replace(REFS[0], (all, q, ref) => {
-    const data = toData(ref);
-    return data ? `url("${data}")` : all;
-  });
-  out = out.replace(REFS[1], (all, q, ref) => {
-    const data = toData(ref);
-    return data ? all.replace(ref, data) : all;
   });
   return { html: out, inlined: [...inlined], missing: [...missing] };
 }

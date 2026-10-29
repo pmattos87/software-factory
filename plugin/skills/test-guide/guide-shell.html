@@ -573,7 +573,8 @@ const GUIDE = {
   labels: {
     of: "of", done: "done", scenario: "Scenario", situation: "The situation",
     steps: "What to do", expected: "What should happen",
-    previous: "\u2190 Previous", next: "Next \u2192", clear: "Clear ticks", scenarios: "Scenarios"
+    previous: "\u2190 Previous", next: "Next \u2192", clear: "Clear ticks", scenarios: "Scenarios",
+    empty: "Nothing to test by hand in this beta: its changes don't show in the app."
   },
   scenarios: [
     {
@@ -660,6 +661,7 @@ const GUIDE = {
   }
 
   function ir(i) {
+    if (!GUIDE.scenarios.length) return;
     atual = Math.max(0, Math.min(GUIDE.scenarios.length - 1, i));
     var c = GUIDE.scenarios[atual];
 
@@ -750,6 +752,18 @@ const GUIDE = {
   });
 
   montarIndice();
+
+  // A beta whose changes the client can't see (test-only fixes, refactors) has no scenarios.
+  if (!GUIDE.scenarios.length) {
+    resumo.textContent = "0 " + L.of + " 0 " + L.done;
+    titulo.textContent = L.empty;
+    [etiqueta, document.querySelector(".situacao"), document.querySelector(".progresso"), document.getElementById("limpar")].forEach(function (el) { el.hidden = true; });
+    document.querySelectorAll(".ficha > section").forEach(function (el) { el.hidden = true; });
+    anterior.disabled = true;
+    proximo.disabled = true;
+    impressao.innerHTML = '<article class="ficha"><header class="cabeca"><h1>' + L.empty + '</h1></header></article>';
+    return;
+  }
 
   var doHash = parseInt((location.hash || "").replace("#s", ""), 10);
   ir(isNaN(doHash) ? 0 : doHash - 1);

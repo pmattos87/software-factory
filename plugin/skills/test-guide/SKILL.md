@@ -37,7 +37,7 @@ Draft them for Pedro before anything else. Each scenario has:
 - **Numbered steps** the tester does, one action each, with the exact labels the app shows.
 - **Expected results**: what they should see, each one checkable by looking.
 
-**One scenario can cover several Stories** when the client sees them as one job. A Story the client can't see (a test-only fix, a refactor) gets no scenario; say so in a line. Show the scenarios as a list, with the Stories each one covers, and wait for Pedro's edits and approval.
+**One scenario can cover several Stories** when the client sees them as one job. A Story the client can't see (a test-only fix, a refactor) gets no scenario; say so in a line. A beta with nothing the client can see still gets its guide, since promote attaches one to every beta: `GUIDE.scenarios` stays empty and the page shows `labels.empty` ("Nothing to test by hand in this beta", in the project's language) with navigation turned off. Say so to Pedro, since it skips the dry run. Show the scenarios as a list, with the Stories each one covers, and wait for Pedro's edits and approval.
 
 ## 3. Dry run on staging
 
