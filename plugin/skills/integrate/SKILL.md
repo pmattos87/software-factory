@@ -78,7 +78,7 @@ Never `--squash`, `--rebase` or `--delete-branch`: the Feature branch lives on u
 
 ## Resolve a conflict with the integration branch
 
-Another Story merged into the integration branch since this one was cut can touch the same lines; a shared changelog is the usual case. Resolve it on a **resolution branch** cut from the integration branch, never on the Feature branch: that one must still carry only this Story when promote merges it into a Release (step 2).
+Another Story merged into the integration branch since this one was cut can touch the same lines. (A project with `release.changelog` set never conflicts on its changelog: each Story writes its own `docs/changes/<KEY>.md`.) Resolve it on a **resolution branch** cut from the integration branch, never on the Feature branch: that one must still carry only this Story when promote merges it into a Release (step 2).
 
 1. Cut it and merge the Feature branch in, as the machine account:
 
@@ -87,7 +87,7 @@ Another Story merged into the integration branch since this one was cut can touc
    git -c user.name=pmattos-pr-review-agent -c user.email=345377693+pmattos-pr-review-agent@users.noreply.github.com merge --no-ff <branch> -m "chore: merge <branch> into <integration>"
    ```
 
-2. Resolve each conflicted file (`git diff --name-only --diff-filter=U`) so both sides' intent survives: two Stories each adding a changelog entry keep both entries, in the file's order. When a hunk isn't clear from its text, read what the other side's Story changed (`git log origin/<integration> -- <file>`). Touch nothing outside the conflicted hunks: Review doesn't cover the merge commit, only the Gates do.
+2. Resolve each conflicted file (`git diff --name-only --diff-filter=U`) so both sides' intent survives: two Stories each adding an entry to a shared list keep both entries, in the file's order. When a hunk isn't clear from its text, read what the other side's Story changed (`git log origin/<integration> -- <file>`). Touch nothing outside the conflicted hunks: Review doesn't cover the merge commit, only the Gates do.
 
    Stop and report when a hunk can only be resolved by picking one side's behavior over the other's, or when you aren't sure what a side meant: `git merge --abort`, switch back to the Feature branch, delete the resolution branch, and name the files and the two Stories. Pedro decides those.
 
