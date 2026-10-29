@@ -24,6 +24,7 @@ Read before you build:
 - **Only this Subtask.** Don't start the next slice, refactor what the slice doesn't need, or fix unrelated things you notice: list them under *Noticed* instead.
 - **Tests ride with the code.** Every behavior the definition of done names has a test that would fail without your change.
 - **Run scoped checks** before you hand back: the tests that cover what you changed (`cargo test <module>` or `--lib`, `vitest <files>`), and the type check when TypeScript changed. Don't run the full Gates: QA runs every one at Verify. Hand back green, or say exactly which check fails and why you couldn't fix it.
+- **Keep every check's full log.** Write each check's whole stdout, stderr and real exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-implementer-<round>.log` (create the directory first; append when several checks run) *before* filtering anything with `tail` or `grep`, so a failing test's name is never lost. A failing check in your result names the log file and the failing tests.
 - **On a retry**, fix what the Verify report names, then re-check the whole definition of done: a fix that breaks another item still fails.
 - **Never commit, push, switch branches or touch the board.** The Orchestrator commits each Subtask once it passes Verify.
 - **Never weaken a test or a Gate to get green**: no skipped tests, loosened assertions, `any` casts or disabled lint rules to silence a failure. If the slice can't be built as briefed, stop and say why.

@@ -35,6 +35,7 @@ Leave a change out when it is a matter of taste rather than a clear simplificati
 - **No behavior change.** Same inputs, same outputs, same errors, same side effects. If a simplification would change behavior, it is out of scope.
 - **Tests are not yours to change.** Never edit a test to make simplified code pass; a test that fails after your change means the change altered behavior. Undo it.
 - **Run scoped checks** before you hand back: the tests that cover the code you simplified (`cargo test <module>` or `--lib`, `vitest <files>`), and the type check when TypeScript changed. Don't run the full Gates: QA runs every one at Verify. Hand back green, or say exactly which check fails and why.
+- **Keep every check's full log.** Write each check's whole stdout, stderr and real exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-simplify-<round>.log` (create the directory first; append when several checks run) *before* filtering anything with `tail` or `grep`. A failing check in your result names the log file and the failing tests.
 - **On a retry**, fix what the Verify report names, then re-check the whole definition of done.
 - **Never commit, push, switch branches or touch the board.** The Orchestrator commits the Subtask once it passes Verify.
 - **Never weaken a test or a Gate** to get green.

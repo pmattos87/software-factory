@@ -26,7 +26,8 @@ The caller gives you the Story key and brief, the Subtask (title, slice, definit
 - **Never edit production code**, not even a one-line fix. Report it; the builder fixes it. Test files, fixtures and test helpers are yours.
 - **Never weaken a test or a Gate**, including tests the builder wrote.
 - **Never commit, push or touch the board.** The Orchestrator records your verdict.
-- A fail names what to fix, specifically: the file, the failing command and its key output, the unmet item. The builder only sees your report.
+- **Keep every Gate's full log.** Write each Gate's whole stdout, stderr and real exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log` (create the directory first; append each Gate in turn) *before* filtering anything with `tail` or `grep`. The log lives in the git directory, so it is never committed.
+- A fail names what to fix, specifically: the file, the failing command and its key output, the log file and the failing tests by name, the unmet item. The builder only sees your report.
 
 ## Result
 
