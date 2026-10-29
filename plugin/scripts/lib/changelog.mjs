@@ -5,11 +5,17 @@
 //   ### Added
 //   - The thing (FB-12).
 //
-// Read by `release-version.mjs changelog`, which promote runs on the Release branch.
+// Read by `release-version.mjs changelog`, which promote runs on the Release
+// branch at the cut and after every sync. The files stay in the repo as each
+// Story's record; the section is rebuilt from them each time.
 
 export const CHANGES_DIR = 'docs/changes';
 
 const ORDER = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security'];
+
+// Where entries written under [Unreleased] before per-Story files are kept, so
+// every later run for the version can rebuild its section with them.
+export const leftoverFile = (version) => `unreleased-v${version}.md`;
 
 // Sorts Story keys by board key, then number: FB-9 before FB-10.
 export function sortKeys(keys) {
@@ -41,11 +47,16 @@ export function parseSections(text, where) {
   return sections;
 }
 
-// Builds the changelog with a `## [<version>] - <date>` section holding, in
-// Keep a Changelog order, what was left under [Unreleased], what an earlier run
-// already wrote for this version, then each Story's entries in key order.
-// `stories` is [{ key, text }]. [Unreleased] stays, empty, above the new section.
-export function assembleChangelog(changelog, version, date, stories) {
+// Rebuilds the changelog's `## [<version>] - <date>` section from scratch, so a
+// run after a sync (a pick added, updated or removed) leaves exactly the
+// current picks. In Keep a Changelog order, each subsection holds the
+// `leftover` entries first (what was under [Unreleased] before per-Story
+// files), then what is under [Unreleased] now, then each Story's entries in key
+// order. `stories` is [{ key, text }]. Any earlier section for this version is
+// replaced; [Unreleased] stays, empty, above it.
+// Returns { text, unreleased }: `unreleased` is what this run cut from under
+// [Unreleased], which the caller keeps with the leftover for the next run.
+export function assembleChangelog(changelog, version, date, stories, leftover = '') {
   const crlf = changelog.includes('\r\n');
   const lines = changelog.replace(/\r\n/g, '\n').split('\n');
   const isH2 = (l) => /^##\s/.test(l);
@@ -65,16 +76,20 @@ export function assembleChangelog(changelog, version, date, stories) {
     }
   };
 
-  // Cut the [Unreleased] body and any earlier section for this version out of the file.
+  // Cut the [Unreleased] body (kept) and any earlier section for this version (dropped).
   let at = -1;
-  for (const re of [/^##\s+\[Unreleased\]/i, new RegExp(`^##\\s+\\[?${escaped}\\]?(\\s|$)`)]) {
+  let unreleased = '';
+  for (const [re, keep] of [[/^##\s+\[Unreleased\]/i, true], [new RegExp(`^##\\s+\\[?${escaped}\\]?(\\s|$)`), false]]) {
     const start = find(re);
     if (start === -1) continue;
     const stop = end(start);
-    add(parseSections(lines.slice(start + 1, stop).join('\n'), lines[start].trim()));
+    if (keep) unreleased = trimBlank(lines.slice(start + 1, stop)).join('\n');
     lines.splice(start, stop - start);
     if (at === -1 || start < at) at = start;
   }
+
+  add(parseSections(leftover.replace(/\r\n/g, '\n'), `${CHANGES_DIR}/${leftoverFile(version)}`));
+  add(parseSections(unreleased, '## [Unreleased]'));
   for (const { key, text } of sortKeys(stories.map((s) => s.key)).map((k) => stories.find((s) => s.key === k))) {
     add(parseSections(text.replace(/\r\n/g, '\n'), `${CHANGES_DIR}/${key}.md`));
   }
@@ -89,7 +104,7 @@ export function assembleChangelog(changelog, version, date, stories) {
   lines.splice(at, 0, ...section);
 
   const out = lines.join('\n');
-  return crlf ? out.replace(/\n/g, '\r\n') : out;
+  return { text: crlf ? out.replace(/\n/g, '\r\n') : out, unreleased };
 }
 
 function trimBlank(lines) {

@@ -2,9 +2,10 @@
 //   node release-version.mjs propose     the version the commits since the last release ask for
 //   node release-version.mjs bump 1.6.0  set that version in every version file (and Cargo.lock)
 //   node release-version.mjs changelog 1.6.0 FB-12 FB-14
-//                                        write the version's changelog section from the picked
-//                                        Stories' docs/changes/<KEY>.md files (release.changelog),
-//                                        delete those files, and print `missing <KEY>` for a pick with none
+//                                        rebuild the version's changelog section (release.changelog)
+//                                        from exactly these Stories' docs/changes/<KEY>.md files, and
+//                                        print `missing <KEY>` for a pick with none. Run it again after
+//                                        every sync; the files stay.
 // The last release is the tag v<current version>, or the production branch when there is no tag.
 
 import fs from 'node:fs';
@@ -12,7 +13,7 @@ import path from 'node:path';
 import { loadConfig, CONFIG_PATH } from './lib/config.mjs';
 import { git } from './lib/git.mjs';
 import { readVersion } from './lib/release.mjs';
-import { assembleChangelog, CHANGES_DIR } from './lib/changelog.mjs';
+import { assembleChangelog, CHANGES_DIR, leftoverFile } from './lib/changelog.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from './lib/version.mjs';
 
 const root = process.cwd();
@@ -81,15 +82,22 @@ function changelog(to, picks) {
   const found = picks.filter((key) => fs.existsSync(path.join(root, CHANGES_DIR, `${key}.md`)));
   const stories = found.map((key) => ({ key, text: read(`${CHANGES_DIR}/${key}.md`) }));
   const date = new Date().toISOString().slice(0, 10);
+  const leftoverPath = `${CHANGES_DIR}/${leftoverFile(to)}`;
+  const leftover = fs.existsSync(path.join(root, leftoverPath)) ? read(leftoverPath) : '';
   let out;
   try {
-    out = assembleChangelog(read(file), to, date, stories);
+    out = assembleChangelog(read(file), to, date, stories, leftover);
   } catch (e) {
     fail(e.message);
   }
-  fs.writeFileSync(path.join(root, file), out);
-  for (const key of found) fs.rmSync(path.join(root, CHANGES_DIR, `${key}.md`));
-  console.log(`${file}: ${to} from ${found.length ? found.join(', ') : 'no Story files'}`);
+  // Entries cut from [Unreleased] join the leftover file, so the next run rebuilds with them.
+  if (out.unreleased) {
+    fs.mkdirSync(path.join(root, CHANGES_DIR), { recursive: true });
+    fs.writeFileSync(path.join(root, leftoverPath), `${leftover.trimEnd()}${leftover.trim() ? '\n\n' : ''}${out.unreleased}\n`);
+    console.log(`${leftoverPath}: the entries that were under [Unreleased]`);
+  }
+  fs.writeFileSync(path.join(root, file), out.text);
+  console.log(`${file}: ${to} rebuilt from ${found.length ? found.join(', ') : 'no Story files'}`);
   for (const key of picks.filter((k) => !found.includes(k))) console.log(`missing ${key}`);
 }
 

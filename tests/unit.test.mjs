@@ -319,7 +319,8 @@ test('checkNoop skips Verify only for a clean tree at the verified sha', () => {
   assert.equal(checkNoop(path.join(dir, 'missing'), verified), null);
 });
 
-test('assembleChangelog builds the version section from the picked Stories', () => {
+
+test('assembleChangelog rebuilds the version section from exactly the current picks', () => {
   const changelog = [
     '# App - Changelog',
     '',
@@ -338,7 +339,9 @@ test('assembleChangelog builds the version section from the picked Stories', () 
     { key: 'FB-10', text: '### Changed\n- Ten changed.\n\n### Added\n- Ten added.\n' },
     { key: 'FB-9', text: '### Added\n- Nine added.\n' },
   ];
-  assert.equal(assembleChangelog(changelog, '1.1.0', '2026-10-30', stories), [
+  const first = assembleChangelog(changelog, '1.1.0', '2026-10-30', stories);
+  assert.equal(first.unreleased, '### Fixed\n- Old fix still unreleased (FB-3).');
+  assert.equal(first.text, [
     '# App - Changelog',
     '',
     '## [Unreleased]',
@@ -362,36 +365,51 @@ test('assembleChangelog builds the version section from the picked Stories', () 
     '',
   ].join('\n'));
 
-  // A second run for the same version (a pick added) merges into its section.
-  const once = assembleChangelog(changelog, '1.1.0', '2026-10-30', stories);
-  const twice = assembleChangelog(once, '1.1.0', '2026-10-31', [{ key: 'FB-11', text: '### Fixed\n- Eleven fixed.\n' }]);
-  assert.equal((twice.match(/## \[1\.1\.0\]/g) ?? []).length, 1);
-  assert.match(twice, /- Old fix still unreleased \(FB-3\)\.\n- Eleven fixed\./);
+  // A sync: FB-10's fragment was updated, FB-9 was removed, FB-2 (a lower key) was added.
+  // The leftover comes back from its file; nothing is duplicated or kept from the old section.
+  const synced = assembleChangelog(first.text, '1.1.0', '2026-10-31', [
+    { key: 'FB-10', text: '### Added\n- Ten added, corrected.\n' },
+    { key: 'FB-2', text: '### Added\n- Two added.\n' },
+  ], first.unreleased);
+  assert.equal(synced.unreleased, '');
+  const section = synced.text.slice(synced.text.indexOf('## [1.1.0]'), synced.text.indexOf('## [1.0.0]'));
+  assert.equal(section, '## [1.1.0] - 2026-10-31\n\n### Added\n- Two added.\n- Ten added, corrected.\n\n### Fixed\n- Old fix still unreleased (FB-3).\n\n');
+  assert.equal((synced.text.match(/## \[1\.1\.0\]/g) ?? []).length, 1);
 
-  assert.match(assembleChangelog(changelog.replace(/\n/g, '\r\n'), '1.1.0', '2026-10-30', stories), /\r\n## \[1\.1\.0\] - 2026-10-30\r\n/);
+  assert.match(assembleChangelog(changelog.replace(/\n/g, '\r\n'), '1.1.0', '2026-10-30', stories).text, /\r\n## \[1\.1\.0\] - 2026-10-30\r\n/);
   assert.throws(() => assembleChangelog(changelog, '1.1.0', '2026-10-30', [{ key: 'FB-1', text: '- no heading\n' }]), /docs\/changes\/FB-1\.md/);
   assert.deepEqual(sortKeys(['FB-10', 'SF-2', 'FB-9']), ['FB-9', 'FB-10', 'SF-2']);
 });
 
-test('release-version changelog writes the section, deletes the files and reports missing picks', () => {
+test('release-version changelog rebuilds the section, keeps the files and reports missing picks', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-changelog-'));
   const run = (...args) => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/release-version.mjs'), ...args], { cwd: root, encoding: 'utf8' });
+  const changes = (f) => path.join(root, 'docs/changes', f);
+  const log = () => fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
   fs.mkdirSync(path.join(root, '.claude'));
   fs.mkdirSync(path.join(root, 'docs/changes'), { recursive: true });
   fs.writeFileSync(path.join(root, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB' }));
-  fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# C\n\n## [Unreleased]\n');
-  fs.writeFileSync(path.join(root, 'docs/changes/FB-1.md'), '### Added\n- One.\n');
+  fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# C\n\n## [Unreleased]\n\n### Fixed\n- Old (FB-3).\n');
+  fs.writeFileSync(changes('FB-1.md'), '### Added\n- One.\n');
 
   let r = run('changelog', '1.0.0', 'FB-1');
   assert.equal(r.status, 0);
   assert.match(r.stdout, /No release\.changelog/);
-  assert.ok(fs.existsSync(path.join(root, 'docs/changes/FB-1.md')));
-  assert.equal(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), '# C\n\n## [Unreleased]\n');
+  assert.match(log(), /## \[Unreleased\]\n\n### Fixed\n- Old \(FB-3\)\.\n$/);
 
   fs.writeFileSync(path.join(root, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', release: { changelog: 'CHANGELOG.md' } }));
   r = run('changelog', '1.0.0', 'FB-1', 'FB-2');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^missing FB-2$/m);
-  assert.ok(!fs.existsSync(path.join(root, 'docs/changes/FB-1.md')));
-  assert.match(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'), /## \[Unreleased\]\n\n## \[1\.0\.0\] - \d{4}-\d{2}-\d{2}\n\n### Added\n- One\.\n/);
+  assert.ok(fs.existsSync(changes('FB-1.md')));
+  assert.equal(fs.readFileSync(changes('unreleased-v1.0.0.md'), 'utf8'), '### Fixed\n- Old (FB-3).\n');
+  assert.match(log(), /## \[Unreleased\]\n\n## \[1\.0\.0\] - \d{4}-\d{2}-\d{2}\n\n### Added\n- One\.\n\n### Fixed\n- Old \(FB-3\)\.\n/);
+
+  // FB-1 dropped from the pick, FB-2 added: the rerun keeps the leftover and nothing of FB-1.
+  fs.writeFileSync(changes('FB-2.md'), '### Changed\n- Two.\n');
+  r = run('changelog', '1.0.0', 'FB-2');
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(log(), /- One\./);
+  assert.match(log(), /## \[1\.0\.0\] - \d{4}-\d{2}-\d{2}\n\n### Changed\n- Two\.\n\n### Fixed\n- Old \(FB-3\)\.\n/);
+  assert.equal(fs.readFileSync(changes('unreleased-v1.0.0.md'), 'utf8'), '### Fixed\n- Old (FB-3).\n');
 });

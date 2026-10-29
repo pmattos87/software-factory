@@ -20,7 +20,7 @@ The project decides which documents it keeps; its `CLAUDE.md` names them. Typica
 - `README.md` and any guide whose claims the diff changed (commands, config keys, behavior).
 - `CONTEXT.md`, when the Story introduced or sharpened a domain term.
 - The project's progress file, when it keeps one.
-- **The changelog, through the Story's own file.** When `.claude/factory.json` sets `release.changelog`, write this Story's entry to `docs/changes/<KEY>.md` and never edit the changelog itself: promote assembles the version's section from the picked Stories' files at release, so two Stories never conflict on it. The file holds Keep a Changelog subsections, with no text before the first heading:
+- **The changelog, through the Story's own file.** When `.claude/factory.json` sets `release.changelog`, write this Story's entry to `docs/changes/<KEY>.md` and never edit the changelog itself: promote rebuilds the version's section from the picked Stories' files at release and after every sync, so two Stories never conflict on it. The file stays in the repo as the Story's record. The file holds Keep a Changelog subsections, with no text before the first heading:
 
   ```
   ### Added
