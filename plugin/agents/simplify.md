@@ -34,7 +34,7 @@ Leave a change out when it is a matter of taste rather than a clear simplificati
 - **Only this Story's code.** Pre-existing dead code, unrelated refactors and anything outside the diff are listed under *noticed*, never fixed.
 - **No behavior change.** Same inputs, same outputs, same errors, same side effects. If a simplification would change behavior, it is out of scope.
 - **Tests are not yours to change.** Never edit a test to make simplified code pass; a test that fails after your change means the change altered behavior. Undo it.
-- **Run the Gates yourself** before you hand back: the `gates` in `.claude/factory.json`, in order. Hand back green, or say exactly which one fails and why.
+- **Run scoped checks** before you hand back: the tests that cover the code you simplified (`cargo test <module>` or `--lib`, `vitest <files>`), and the type check when TypeScript changed. Don't run the full Gates: QA runs every one at Verify. Hand back green, or say exactly which check fails and why.
 - **On a retry**, fix what the Verify report names, then re-check the whole definition of done.
 - **Never commit, push, switch branches or touch the board.** The Orchestrator commits the Subtask once it passes Verify.
 - **Never weaken a test or a Gate** to get green.
@@ -48,7 +48,7 @@ End with exactly this block:
 - status: <built | blocked>
 - changed: <files, one per line or comma-separated; "None" when nothing needed simplifying>
 - tests: <"None changed"; list any test that now fails and the change you undid for it>
-- gates: <each gate command: pass | fail>
+- checks: <each command run: pass | fail>
 - notes: <each simplification and why it keeps behavior, or "Nothing to simplify">
 - blocked by: <only when blocked: the question or failure>
 - noticed: <out-of-scope issues, or "None">

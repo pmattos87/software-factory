@@ -40,7 +40,9 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 ## What a Run adds
 
-A Specialist doesn't repeat the Run's rules. When the Orchestrator hands it a Subtask, the handoff carries the same rules the [Implementer](../plugin/agents/implementer.md) follows: build only that Subtask, with its tests; run the Gates; never commit, push, switch branches or touch the board; never weaken a test or a Gate; end with the Implementer's `## Result` block.
+A Specialist doesn't repeat the Run's rules. When the Orchestrator hands it a Subtask, the handoff carries the same rules the [Implementer](../plugin/agents/implementer.md) follows: build only that Subtask, with its tests; run scoped checks (the tests that cover the change, and the type check when TypeScript changed), not the full Gates, which QA runs at Verify; never commit, push, switch branches or touch the board; never weaken a test or a Gate; end with the Implementer's `## Result` block.
+
+A Specialist's own file, or the project's `CLAUDE.md`, that tells builders to run the full Gates (a definition of done such as "all Gates pass", a testing section asking for the whole suite) works against this: the builder pays for a full Gate cycle QA repeats anyway. Align them with the scoped-checks rule.
 
 ## Checking
 
