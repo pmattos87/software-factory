@@ -16,6 +16,7 @@ import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
+import { findBrowser, browserCandidates, printArgs } from '../plugin/scripts/lib/browser.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -412,4 +413,24 @@ test('release-version changelog rebuilds the section, keeps the files and report
   assert.doesNotMatch(log(), /- One\./);
   assert.match(log(), /## \[1\.0\.0\] - \d{4}-\d{2}-\d{2}\n\n### Changed\n- Two\.\n\n### Fixed\n- Old \(FB-3\)\.\n/);
   assert.equal(fs.readFileSync(changes('unreleased-v1.0.0.md'), 'utf8'), '### Fixed\n- Old (FB-3).\n');
+});
+
+test('findBrowser prefers FACTORY_BROWSER, then Edge, then Chrome, and gives up with null', () => {
+  const env = { ProgramFiles: 'C:/PF', 'ProgramFiles(x86)': 'C:/PF86' };
+  const edge86 = path.join('C:/PF86', 'Microsoft/Edge/Application/msedge.exe');
+  const chrome = path.join('C:/PF', 'Google/Chrome/Application/chrome.exe');
+  assert.equal(findBrowser(env, (p) => p === edge86 || p === chrome), edge86);
+  assert.equal(findBrowser(env, (p) => p === chrome), chrome);
+  assert.equal(findBrowser(env, () => false), null);
+  assert.equal(findBrowser({ ...env, FACTORY_BROWSER: 'D:/b.exe' }, (p) => p === 'D:/b.exe' || p === edge86), 'D:/b.exe');
+  assert.equal(findBrowser({ ...env, FACTORY_BROWSER: 'D:/gone.exe' }, (p) => p === edge86), null);
+  assert.ok(browserCandidates({}).includes('/usr/bin/google-chrome'));
+});
+
+test('printArgs prints headless, without header or footer, from a file URL with a private profile', () => {
+  const args = printArgs('C:/tmp/My deck.html', 'C:/tmp/out.pdf', 'C:/tmp/profile');
+  for (const flag of ['--headless=new', '--no-pdf-header-footer', '--virtual-time-budget=8000', '--print-to-pdf=C:/tmp/out.pdf', '--user-data-dir=C:/tmp/profile']) {
+    assert.ok(args.includes(flag), flag);
+  }
+  assert.match(args.at(-1), /^file:\/\/\/?.*My%20deck\.html$/);
 });

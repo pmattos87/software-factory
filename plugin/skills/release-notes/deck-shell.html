@@ -1,0 +1,152 @@
+<!doctype html>
+<!--
+  Release-notes deck shell (factory:release-notes, section 4).
+  Copy it to the scratchpad, fill it, then print it with scripts/print-pdf.mjs.
+
+  Fill:
+  - lang, <title>, and every {{...}} slot.
+  - THEME: replace the :root values with the palette in release.notes.guide.
+    --new / --imp / --fix are the accent of each type (pill, overview number,
+    card border); every slide sits on --bg.
+  - FONTS: one @font-face per file the guide names (woff2, a path relative to
+    this file once copied). With no fonts in the guide, delete the block: the
+    stacks fall back to system fonts. Never a web-font <link>: the deck is
+    printed from a local file.
+  - Slides: keep the cover and the overview; copy the "major" slide once per
+    Table 1 row and a "minor" slide per type in Table 2; delete the rest.
+    Number the footers 02, 03... in order.
+  - Images: paths relative to this file (img/...). Each frame is sized to its
+    content; crop each shot to its useful area first, or a wide shot becomes
+    unreadable.
+-->
+<html lang="{{lang}}">
+<meta charset="utf-8">
+<title>{{Project}} v{{version}} - {{Release notes}}</title>
+<style>
+  /* FONTS: from release.notes.guide */
+  @font-face { font-family: "Display"; src: url("{{fonts/display.woff2}}") format("woff2"); font-weight: 700 900; }
+  @font-face { font-family: "Body"; src: url("{{fonts/body.woff2}}") format("woff2"); font-weight: 400 600; }
+  @font-face { font-family: "Mono"; src: url("{{fonts/mono.woff2}}") format("woff2"); font-weight: 400 600; }
+
+  @page { size: 1920px 1080px; margin: 0; }
+
+  /* THEME: from release.notes.guide */
+  :root {
+    --bg: #f4f1ec; --bg2: #ebe6de; --ink: #17181a; --muted: #5d5a55; --line: #d8d1c6;
+    --new: #e0612f; --imp: #2f62c9; --fix: #2a7d52; --frame: #0f1218; --cover: #17181a;
+    --display: "Display", "Segoe UI", sans-serif; --body: "Body", "Segoe UI", sans-serif; --mono: "Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { width: 1920px; height: 1080px; position: relative; overflow: hidden; background: var(--bg); padding: 96px 112px 132px; page-break-after: always; break-after: page; }
+  .slide:last-child { page-break-after: auto; break-after: auto; }
+  .foot { position: absolute; left: 112px; right: 112px; bottom: 52px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 22px; color: var(--muted); letter-spacing: .04em; }
+  .pill { display: inline-block; padding: 8px 20px; border-radius: 99px; font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #fff; }
+  .pill.new { background: var(--new); } .pill.imp { background: var(--imp); } .pill.fix { background: var(--fix); }
+  h1 { font-family: var(--display); font-weight: 800; letter-spacing: -.02em; }
+  h2 { font-family: var(--display); font-weight: 800; font-size: 68px; line-height: 1.04; letter-spacing: -.02em; margin: 28px 0; }
+  p.lead { font-size: 30px; line-height: 1.42; }
+  ul.b { list-style: none; margin-top: 34px; display: flex; flex-direction: column; gap: 18px; }
+  ul.b li { font-size: 26px; line-height: 1.38; padding-left: 34px; position: relative; }
+  ul.b li::before { content: ""; position: absolute; left: 0; top: 13px; width: 14px; height: 14px; border-radius: 3px; background: var(--accent, var(--new)); }
+  .slide.imp { --accent: var(--imp); } .slide.fix { --accent: var(--fix); }
+
+  /* major: text left, a screenshot or a terminal card right */
+  .major { display: grid; grid-template-columns: 640px 1fr; gap: 72px; height: 100%; align-items: center; }
+  .shot { background: var(--frame); border-radius: 18px; padding: 18px; max-height: 852px; justify-self: center; display: flex; align-items: center; justify-content: center; box-shadow: 0 30px 60px -30px rgba(23,24,26,.45); }
+  .shot img { max-width: 100%; max-height: 816px; object-fit: contain; border-radius: 8px; display: block; }
+  /* terminal: real command output, captured on the spot, for a change with no screen */
+  .term { background: var(--frame); color: #d9dde4; border-radius: 18px; padding: 40px 44px; font-family: var(--mono); font-size: 21px; line-height: 1.55; white-space: pre-wrap; box-shadow: 0 30px 60px -30px rgba(23,24,26,.45); align-self: center; }
+  .term .p { color: #7c8594; } .term .c { color: #f2f4f7; } .term .r { color: #ff7a6b; } .term .g { color: #57c98a; } .term .o { color: #ffa36e; }
+  .term + .term { margin-top: 24px; }
+  .stack { display: flex; flex-direction: column; justify-content: center; height: 100%; }
+
+  /* cover */
+  .cover { background: var(--cover); color: #fff; padding: 0; display: grid; grid-template-columns: 1fr 760px; }
+  .cover .l { padding: 120px 112px; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover .r { background: rgba(0,0,0,.25); border-left: 14px solid var(--new); display: flex; align-items: center; justify-content: center; }
+  .cover .r img { max-width: 600px; max-height: 600px; }
+  .cover .kicker { font-family: var(--mono); font-size: 26px; letter-spacing: .18em; text-transform: uppercase; color: var(--new); }
+  .cover h1 { font-size: 150px; line-height: .95; margin-top: 30px; }
+  .cover .sub { font-size: 38px; line-height: 1.35; opacity: .8; margin-top: 40px; max-width: 880px; }
+  .cover .meta { font-family: var(--mono); font-size: 24px; opacity: .6; letter-spacing: .06em; }
+
+  /* overview in numbers */
+  .ov h1 { font-size: 104px; line-height: 1; margin-top: 18px; }
+  .ov .k { font-family: var(--mono); font-size: 24px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+  .ov .note { font-size: 30px; color: var(--muted); margin-top: 22px; max-width: 1300px; line-height: 1.4; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; margin-top: 72px; }
+  .card { background: #fff; border: 1px solid var(--line); border-top: 10px solid var(--new); border-radius: 14px; padding: 40px 44px 44px; }
+  .card.imp { border-top-color: var(--imp); } .card.fix { border-top-color: var(--fix); }
+  .card .n { font-family: var(--display); font-weight: 900; font-size: 140px; line-height: 1; color: var(--new); }
+  .card.imp .n { color: var(--imp); } .card.fix .n { color: var(--fix); }
+  .card h3 { font-family: var(--display); font-size: 40px; font-weight: 800; margin-top: 14px; }
+  .card p { font-size: 26px; color: var(--muted); margin-top: 10px; line-height: 1.4; }
+
+  /* minor: a card grid of "where - what changed" */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 64px; margin-top: 30px; }
+  .row { border-top: 1px solid var(--line); padding: 20px 0; font-size: 25px; line-height: 1.4; }
+  .row b { font-family: var(--display); font-weight: 700; font-size: 26px; display: block; margin-bottom: 4px; }
+</style>
+<body>
+
+<!-- 1. Cover: logo, project, version (v1.2.0 or "v1.2.0 beta 2"), date; wording from the guide -->
+<section class="slide cover">
+  <div class="l">
+    <div>
+      <div class="kicker">{{Release notes}}</div>
+      <h1>{{Project}}<br>v{{version}}</h1>
+      <p class="sub">{{One sentence on what this Release brings, in the client's words.}}</p>
+    </div>
+    <div class="meta">{{date}}</div>
+  </div>
+  <div class="r"><img src="{{img/logo.png}}" alt="{{Project}}"></div>
+</section>
+
+<!-- 2. Overview: "N changes", then one card per type, counts from the merged tables -->
+<section class="slide ov">
+  <div class="k">{{The release in numbers}}</div>
+  <h1>{{N changes}}</h1>
+  <p class="note">{{One line of context.}}</p>
+  <div class="cards">
+    <div class="card new"><div class="n">{{n}}</div><h3>{{New features}}</h3><p>{{What the client couldn't do before}}</p></div>
+    <div class="card imp"><div class="n">{{n}}</div><h3>{{Improvements}}</h3><p>{{What already existed, made smoother}}</p></div>
+    <div class="card fix"><div class="n">{{n}}</div><h3>{{Fixes}}</h3><p>{{What went wrong before, now fixed}}</p></div>
+  </div>
+  <div class="foot"><span>{{Project}} v{{version}}</span><span>02</span></div>
+</section>
+
+<!-- 3. Major: one per Table 1 row. The section class (new / imp / fix) sets the bullet colour. -->
+<section class="slide new">
+  <div class="major">
+    <div>
+      <span class="pill new">{{New feature}}</span>
+      <h2>{{Title in the client's words}}</h2>
+      <p class="lead">{{One paragraph: what changes.}}</p>
+      <ul class="b">
+        <li>{{What changes in the client's day}}</li>
+        <li>{{2 to 4 bullets}}</li>
+      </ul>
+    </div>
+    <div class="shot"><img src="{{img/shot.png}}" alt="{{What the screenshot shows}}"></div>
+    <!-- A change with no screen: real command output instead of the shot.
+    <div class="term"><span class="p">$</span> <span class="c">{{command}}</span>
+{{output, captured on the spot}}</div>
+    -->
+  </div>
+  <div class="foot"><span>{{Project}} v{{version}}</span><span>03</span></div>
+</section>
+
+<!-- 4. Minor: one per type in Table 2, sized to fit (split into two slides past ~10 rows) -->
+<section class="slide imp">
+  <span class="pill imp">{{Improvements}}</span>
+  <h2>{{N improvements}}</h2>
+  <div class="grid2">
+    <div class="row"><b>{{Where}}</b>{{What changed, one line.}}</div>
+  </div>
+  <div class="foot"><span>{{Project}} v{{version}}</span><span>04</span></div>
+</section>
+
+</body>
+</html>
