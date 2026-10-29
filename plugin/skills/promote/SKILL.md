@@ -1,6 +1,6 @@
 ---
 name: promote
-description: Promote a Release - cut its release/vX.Y.Z branch from production with the picked Stories' Feature branches merged in and the version bumped, bring the branch back in line when the pick changes, on Client projects tag betas for User testing, open its PR into production, and once Pedro merges it tag the version, publish the GitHub Release with its assets, mark the Release released and delete its branches. Use when the user asks to cut, promote, ship or finish a Release, to send a Release to the client or tag a new beta, to say the client approved it, or to release a version to production.
+description: Promote a Release - cut its release/vX.Y.Z branch from production with the picked Stories' Feature branches merged in and the version bumped, bring the branch back in line when the pick changes, on Client projects tag betas for User testing with the release-notes deck and test guide attached after Pedro reviews them, open its PR into production, and once Pedro merges it tag the version, publish the GitHub Release with its assets, mark the Release released and delete its branches. Use when the user asks to cut, promote, ship or finish a Release, to send a Release to the client or tag a new beta, to say the client approved it, or to release a version to production.
 ---
 
 # Promote: from a picked Release to production
@@ -116,21 +116,30 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
 
 ## 7. Client projects: User testing
 
-A Client Release goes through User testing before step 5. The client tests a beta built from the Release branch, and only after the client approves does it go to production. Each beta is a tag `v<version>-beta.<n>` on the Release branch, with a GitHub pre-release carrying its assets.
+A Client Release goes through User testing before step 5. The client tests a beta built from the Release branch, and only after the client approves does it go to production. Each beta is a tag `v<version>-beta.<n>` on the Release branch, with a GitHub pre-release carrying its assets and two documents for the client: the release-notes deck as a PDF and the test guide as one HTML file. The client never sees a pre-release with either missing.
 
 **Tagging a beta** (used by 7.1 and 7.2), with `<n>` one more than the highest `v<version>-beta.*` tag (1 for the first):
 
 1. On the Release branch, in line with origin: `git-bot tag -a v<version>-beta.<n> -m "v<version>-beta.<n>"`, then `git push origin v<version>-beta.<n>`.
 2. Build the assets from that tag, as in step 6.4.
-3. Publish it as a pre-release, with the notes from step 5 under a `## v<version>-beta.<n>` heading:
+3. **Launch that build on staging** (`release.notes.staging`): the documents' screenshots and the guide's dry run must show what the client will install.
+4. **Build both documents** for this beta: `factory:release-notes`, then `factory:test-guide`. Beta 1 covers the whole Release; beta 2 and later cover only what changed since the previous beta (each skill decides this itself). Their files, ASCII with no spaces since GitHub renames spaces in asset names:
+   - `<project-key>-release-notes-v<version>-beta.<n>.pdf`
+   - `<project-key>-test-guide-v<version>-beta.<n>.html`
+5. **Stop for Pedro's review of both.** Show the deck's contact sheet and the guide's coverage table, and wait. His changes go back to the skill that made the document, and he reviews again. Nothing is published until he approves both.
+6. Publish the pre-release with every file at once, the installer and both documents, with the notes from step 5 under a `## v<version>-beta.<n>` heading:
 
    ```
-   gh-bot release create v<version>-beta.<n> <asset files> --verify-tag --prerelease --title "v<version>-beta.<n>" --notes-file <notes file>
+   gh-bot release create v<version>-beta.<n> <asset files> <project-key>-release-notes-v<version>-beta.<n>.pdf <project-key>-test-guide-v<version>-beta.<n>.html --verify-tag --prerelease --title "v<version>-beta.<n>" --notes-file <notes file>
    ```
+
+   Then check the pre-release lists all of them (`gh release view v<version>-beta.<n> --json assets`).
+
+**Resuming a beta** whose tag exists with no pre-release (the session ended during the review): don't tag again. Pick up at step 2 with the same `<n>`, reusing the documents only if Pedro already approved them for this tag.
 
 ### 7.1 The first beta
 
-After 3. Cut: tag beta 1, then `release_move` the Release to `user_testing`. Its Stories move to `user_testing` with it, and the board assigns them to the project's primary client contact; a refusal (no primary contact, a pick not `tested`) is reported as is. Then hand over: Pedro sends the beta to the client, with the client-facing notes from `factory:release-notes` when he wants them. Stop here: the client tests now.
+After 3. Cut: tag beta 1, then `release_move` the Release to `user_testing`. Its Stories move to `user_testing` with it, and the board assigns them to the project's primary client contact; a refusal (no primary contact, a pick not `tested`) is reported as is. Then hand over: the pre-release's link, and that its deck and test guide are the files the client opens first. Pedro sends it to the client. Stop here: the client tests now.
 
 ### 7.2 The next beta, after a fix or a changed pick
 
@@ -138,7 +147,7 @@ The client reports a bug: Pedro files it as a bug Subtask on the Story (`factory
 
 1. Every pick must be `user_testing` or `tested`. A pick still in `building` or `integrated_tests` holds the next beta: say which, and stop.
 2. Sync (section 4) merges each pick's Feature branch again, which brings in the fix. A pick added during User testing is merged the same way, and a removed pick is reverted (a beta exists, so the branch is never re-cut).
-3. When the Release branch changed since the last beta tag (`git rev-list v<version>-beta.<last>..origin/release/v<version>` is not empty), tag the next beta. When it didn't, there is nothing new for the client: say so.
+3. When the Release branch changed since the last beta tag (`git rev-list v<version>-beta.<last>..origin/release/v<version>` is not empty), tag the next beta. Its deck and test guide cover only what changed since the last beta. When it didn't, there is nothing new for the client: say so.
 4. `story_move` each pick in `tested` to `user_testing`: the fixed Stories and the ones added during User testing go back to the client.
 
 ### 7.3 The client approved it
