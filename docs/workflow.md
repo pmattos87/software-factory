@@ -30,12 +30,12 @@ Shipped in [plugin/agents/](../plugin/agents/), invoked as `factory:<name>` by `
 | Agent | Stage | Job | Tier |
 |---|---|---|---|
 | [`task-splitter`](../plugin/agents/task-splitter.md) | Plan | Proposes a Story's Subtasks; never writes | opus |
-| [`implementer`](../plugin/agents/implementer.md) | Build | Builds a Subtask with its tests when no Specialist fits | sonnet |
+| [`implementer`](../plugin/agents/implementer.md) | Build | Builds a Subtask with its tests when no Specialist fits; runs scoped checks, not the full Gates | sonnet |
 | [`qa`](../plugin/agents/qa.md) | Build, per Subtask | Verify: the Gates plus the definition of done; may strengthen tests, never production code | opus |
 | [`simplify`](../plugin/agents/simplify.md) | Build, per Story | Simplifies the code the Story wrote, without changing behavior, before Docs and Review | sonnet |
 | [`docs`](../plugin/agents/docs.md) | Build, per Story | Keeps the project's working documents true to the Story's diff | sonnet |
 
-None of them touches the board, commits or pushes: each ends with a fixed result block, and the Orchestrator records the trail and commits. A project may change an agent's tier in `.claude/factory.json` with a stated reason ([Guardrails](guardrails.md#per-project-config)).
+None of them touches the board, commits or pushes: each ends with a fixed result block, and the Orchestrator records the trail and commits. Only QA runs the full Gates; builders run the checks scoped to their change. Every agent that runs a Gate or test writes its full output and exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/` before filtering it. A project may change an agent's tier in `.claude/factory.json` with a stated reason ([Guardrails](guardrails.md#per-project-config)).
 
 ## The path of a Story
 
