@@ -763,3 +763,35 @@ test('run-gates.mjs records nothing after a failing Gate changed the tree, even 
   assert.equal(treeKey(dir), before, 'the second Gate restored the tree');
   assert.deepEqual(readEvidence(dir), {}, 'the restoring Gate ran on a changed tree, so it proves nothing');
 });
+
+test('treeKey keys a directory link by its target, so retargeting it changes the key', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-treekey-link-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  for (const v of ['good', 'bad']) {
+    fs.mkdirSync(path.join(dir, 'versions', v), { recursive: true });
+    // The same file in both: only the link's target tells them apart, as on a
+    // system where git doesn't look inside a linked directory.
+    fs.writeFileSync(path.join(dir, 'versions', v, 'impl.js'), 'same');
+  }
+  try {
+    fs.symlinkSync(path.join(dir, 'versions/good'), path.join(dir, 'current'), 'junction');
+  } catch (e) {
+    t.skip(`can't create a directory link here: ${e.code}`);
+    return;
+  }
+  // Tracked as a symlink, as a committed link would be.
+  const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: dir, input: 'versions/good', encoding: 'utf8' }).stdout.trim();
+  git(dir, 'add', 'versions');
+  git(dir, 'update-index', '--add', '--cacheinfo', `120000,${blob},current`);
+  git(dir, 'commit', '-q', '-m', 'init');
+  const good = treeKey(dir);
+
+  fs.rmSync(path.join(dir, 'current'));
+  fs.symlinkSync(path.join(dir, 'versions/bad'), path.join(dir, 'current'), 'junction');
+  assert.notEqual(treeKey(dir), good, 'pointing current at versions/bad changes the key');
+  fs.rmSync(path.join(dir, 'current'));
+  fs.symlinkSync(path.join(dir, 'versions/good'), path.join(dir, 'current'), 'junction');
+  assert.equal(treeKey(dir), good, 'pointing it back restores the key');
+});

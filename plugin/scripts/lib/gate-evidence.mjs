@@ -54,19 +54,33 @@ export function treeKey(root) {
   if (!modes) return null;
   const fileMode = git(root, 'config', '--bool', 'core.fileMode') !== 'false';
 
-  const files = [...new Set(listed.split('\0').filter(Boolean))]
-    .filter((f) => !DOCS.test(f) && fs.existsSync(path.join(root, f)) && fs.statSync(path.join(root, f)).isFile())
-    .sort();
+  // A symlink (to a file or a directory) is keyed by its target, never followed:
+  // retargeting it changes the key even when neither target changed.
+  const lstat = (f) => {
+    try {
+      return fs.lstatSync(path.join(root, f));
+    } catch {
+      return null;
+    }
+  };
+  const entries = [...new Set(listed.split('\0').filter(Boolean))]
+    .filter((f) => !DOCS.test(f))
+    .map((f) => ({ f, stat: lstat(f) }))
+    .filter(({ stat }) => stat && (stat.isFile() || stat.isSymbolicLink()))
+    .sort((a, b) => (a.f < b.f ? -1 : a.f > b.f ? 1 : 0));
+  const files = entries.filter((e) => !e.stat.isSymbolicLink()).map((e) => e.f);
   const hashes = files.length
     ? spawnSync('git', ['hash-object', '--stdin-paths'], { cwd: root, input: files.join('\n'), encoding: 'utf8' })
     : { status: 0, stdout: '' };
   if (hashes.status !== 0) return null;
   const lines = hashes.stdout.trim().split('\n').filter(Boolean);
+  const content = new Map(files.map((f, i) => [f, lines[i]]));
   const sum = crypto.createHash('sha256');
-  files.forEach((f, i) => {
-    const mode = modes.get(f) ?? untrackedMode(fs.lstatSync(path.join(root, f)), fileMode);
-    sum.update(`${f}\0${mode}\0${lines[i]}\n`);
-  });
+  for (const { f, stat } of entries) {
+    const link = stat.isSymbolicLink();
+    const mode = link ? '120000' : modes.get(f) ?? untrackedMode(stat, fileMode);
+    sum.update(`${f}\0${mode}\0${link ? `link:${fs.readlinkSync(path.join(root, f))}` : content.get(f)}\n`);
+  }
   return sum.digest('hex');
 }
 
