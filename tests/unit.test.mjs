@@ -17,6 +17,7 @@ import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
 import { findBrowser, browserCandidates, printArgs } from '../plugin/scripts/lib/browser.mjs';
+import { inlineAssets, remoteRefs, unfilledSlots } from '../plugin/scripts/lib/inline.mjs';
 
 test('splitCommands honors quotes and separators', () => {
   assert.deepEqual(splitCommands(`git add . && git commit -m "a && b; c" | cat; FOO=1 gh pr create -t 'x y'`), [
@@ -433,4 +434,40 @@ test('printArgs prints headless, without header or footer, from a file URL with 
     assert.ok(args.includes(flag), flag);
   }
   assert.match(args.at(-1), /^file:\/\/\/?.*My%20deck\.html$/);
+});
+
+test('inlineAssets embeds local fonts and images, and remoteRefs finds what would load from elsewhere', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-inline-'));
+  fs.mkdirSync(path.join(dir, 'fonts'));
+  fs.writeFileSync(path.join(dir, 'fonts/body.woff2'), 'FONT');
+  fs.writeFileSync(path.join(dir, 'logo.png'), 'PNG');
+  const html = [
+    '<style>@font-face { font-family: B; src: url("fonts/body.woff2") format("woff2"); }</style>',
+    '<img src="logo.png" alt="">',
+    '<img src="gone.png" alt="">',
+    '<a href="https://example.com/help">help</a>',
+    '<a href="#s02">next</a>',
+  ].join('\n');
+
+  const { html: out, inlined, missing } = inlineAssets(html, dir);
+  assert.deepEqual(inlined.sort(), ['fonts/body.woff2', 'logo.png']);
+  assert.deepEqual(missing, ['gone.png']);
+  assert.match(out, /url\("data:font\/woff2;base64,Rk9OVA=="\)/);
+  assert.match(out, /src="data:image\/png;base64,UE5H"/);
+  assert.match(out, /href="#s02"/);
+  assert.deepEqual(remoteRefs(out), []);
+
+  const remote = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=X">\n<style>@import "//cdn.example.com/a.css"; .x { background: url(https://x.test/b.png) }</style>\n<script src="http://x.test/c.js"></script>';
+  assert.deepEqual(remoteRefs(remote).sort(), ['//cdn.example.com/a.css', 'http://x.test/c.js', 'https://fonts.googleapis.com/css2?family=X', 'https://x.test/b.png']);
+});
+
+test('the shipped guide shell loads nothing from the network', () => {
+  const shell = fs.readFileSync(path.resolve(import.meta.dirname, '../plugin/skills/test-guide/guide-shell.html'), 'utf8');
+  assert.deepEqual(remoteRefs(shell), []);
+  assert.match(shell, /key: "\{\{project-key\}\}-test-guide-v\{\{version\}\}\{\{-beta\.n\}\}"/);
+  const deck = fs.readFileSync(path.resolve(import.meta.dirname, '../plugin/skills/release-notes/deck-shell.html'), 'utf8');
+  assert.deepEqual(remoteRefs(deck), []);
+  assert.ok(unfilledSlots(shell).includes('{{fonts/display.woff2}}'));
+  assert.deepEqual(unfilledSlots('<!doctype html>\n<!-- fill every {{...}} slot -->\n<p>done</p>'), []);
+  assert.deepEqual(unfilledSlots('<p>{{Project}} and {{Project}}</p>'), ['{{Project}}']);
 });
