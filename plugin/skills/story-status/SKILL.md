@@ -50,6 +50,7 @@ The assignee is set by the move itself. Don't set it.
 | Move a Subtask | `subtask_move` |
 | File a bug found while testing | `subtask_create` with `bug: true`, then `story_move` back to `building` |
 | Depends on another Story | `story_link` |
+| Start a Verify round (lights Verify on the Run graph) | `verify_start` with the Subtask's key |
 | Start a Review round (lights Code review on the Run graph) | `review_start` |
 | File a defect found in production (a bug Story, enters `backlog`) | `story_create` with `bug: true` |
 | New epic (a goal grouping several Stories; starts open at `todo`) | `epic_create` with `project`, `title`, `description`, `labels` |

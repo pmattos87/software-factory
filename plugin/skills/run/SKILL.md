@@ -73,12 +73,12 @@ In plan order, for each Subtask not `done` or `canceled` except the `Simplify` S
 2. `subtask_handoff` with the builder and its model.
 3. **Build.** Delegate to the builder (`factory:implementer`, or the Specialist by name) with the model from step 2. Hand it the Story key, the full brief, the Subtask's key, title, slice (from its description) and "done when" items (from the plan). A Specialist's handoff also carries the Implementer's rules, since its file doesn't repeat them: only this Subtask, tests with the code, run scoped checks (the tests that cover the change, and the type check when TypeScript changed; not the full Gates, which QA runs), write each check's full output and exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-<specialist-name>-<round>.log` before filtering it, never commit, push, switch branches or touch the board, never weaken a test or a Gate, and end with the Implementer's `## Result` block.
 4. **Blocked**: a builder that returns `status: blocked` needs a decision from Pedro. `run_stop` with `<KEY>: <what it is blocked by>` and go to step 9.
-5. **Verify.** Delegate to `factory:qa` with the Story key and brief, the Subtask and its "done when" items, the builder's result block, the round number, and the command that runs the Gates: `node "<this skill's base directory>/../../scripts/run-gates.mjs" "$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log"`. It returns a `## Verify` block. Record it: `subtask_verify` with `passed` and its `reason`.
+5. **Verify.** First `verify_start` with the Subtask's key: it logs the round's start on the trail, and the Run graph lights Verify from it. Call it once per round, round 2 included. A refusal (the Subtask isn't `in_progress`, the Story isn't building, or its Run is stopped) stops the step, as any refused board call does. Then delegate to `factory:qa` with the Story key and brief, the Subtask and its "done when" items, the builder's result block, the round number, and the command that runs the Gates: `node "<this skill's base directory>/../../scripts/run-gates.mjs" "$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log"`. It returns a `## Verify` block. Record it: `subtask_verify` with `passed` and its `reason`.
 6. **Pass**: commit the Subtask (below), `subtask_move` it to `done`, and go on to the next one.
    **Fail, round 1**: hand the same Subtask back to the builder: a new `subtask_handoff`, then build again with QA's findings attached, then Verify as round 2.
    **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 9. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
 
-A round is one build plus one Verify. Rounds count from 1 for each Subtask, and again from 1 after a restart. On a resumed Run, count them from `story_trail`: the Subtask's Verify results since the Run's last restart (or its start), so a new session never grants a third round.
+A round is one build plus one Verify. Rounds count from 1 for each Subtask, and again from 1 after a restart. On a resumed Run, count them from `story_trail`: the Subtask's Verify results since the Run's last restart (or its start), so a new session never grants a third round. A Verify start with no result after it (a session that ended during QA) is not a round: call `verify_start` again for the same round.
 
 **Committing a Subtask.** Stage what the builder and QA changed (check `git status`: nothing outside the slice, no stray files) and commit it as the Factory's machine account:
 
@@ -111,7 +111,7 @@ After the last Subtask passes, the code the Story wrote gets one cleanup pass, b
    node "<this skill's base directory>/../../scripts/check-noop.mjs" <the sha you recorded>
    ```
 
-   - **Exit 0**: the tree is clean (no tracked or untracked change) and HEAD is still that sha. Skip QA: `subtask_verify` with `passed` and the line it printed as the reason (`No change: tree clean, HEAD <sha> already verified`), then `subtask_move` it to `done` with nothing to commit, and say so in the report.
+   - **Exit 0**: the tree is clean (no tracked or untracked change) and HEAD is still that sha. Skip QA, and with it `verify_start`: `subtask_verify` with `passed` and the line it printed as the reason (`No change: tree clean, HEAD <sha> already verified`), then `subtask_move` it to `done` with nothing to commit, and say so in the report.
    - **Exit 1 or 2**: Verify it as in step 4, items 5 and 6, with its own 2 rounds, whatever Simplify's result says. A retry goes back to item 3 of step 4 and then to this check again.
 
 A `done` Simplify Subtask is never filed or built again; go on to Docs.
