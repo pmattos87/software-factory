@@ -22,7 +22,15 @@ _Avoid_: ticket, issue
 
 **Subtask**:
 A sub-unit of a Story, such as a slice of the build or a bug found while testing. A Story moves forward only when all its Subtasks are done. A Subtask has no Run of its own: its work happens inside its Story's Run, and its details live in the Story's description.
-_Avoid_: task, bug story, ticket
+_Avoid_: task, ticket
+
+**Bug Story**:
+A `bug` with no parent on a Factory project: a fix found in production, which climbs the Story ladder like any Story, with its own Feature branch (`fix/...`), PR and Release. A bug with a parent stays a bug Subtask.
+_Avoid_: hotfix, defect ticket
+
+**Epic**:
+A group of Stories toward one goal, across several Releases, within one project. It is never built and never has a Run; it has no Story ladder, only open (`todo`) then `done` or `canceled`, and its progress comes from its Stories.
+_Avoid_: initiative, theme
 
 **Release**:
 A set of Stories promoted together past Integrate (into User testing or Production), carrying one version number.
@@ -41,7 +49,7 @@ The branch a Release is assembled on: cut from production, with the picked Featu
 _Avoid_: test branch, user testing branch
 
 **Run**:
-One Story's trip through the Workflow. Several Runs may share a branch (a batch); a group of Stories (a sprint or label) is not a Run.
+One Story's trip through the Workflow. Several Runs may share a branch (a batch); a group of Stories (a sprint, a label or an epic) is not a Run.
 _Avoid_: workflow instance, execution, job
 
 **Role agent**:

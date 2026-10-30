@@ -7,7 +7,7 @@ description: Create and move Stories and Subtasks on a Factory project's Flowboa
 
 The board is the Workflow's source of truth: every Stage reads the Story and writes back to it. This skill is the **how**. The **when** (which event moves what) is in the Workflow and in the project's `CLAUDE.md`; follow it there.
 
-Every write goes through the `flowboard` MCP (`story_*`, `subtask_*`, `pr_*`, `project_show`). Each call enforces the ladder, the assignee rule and the Run trail, so this skill never restates them. **Never write with raw SQL** (`flowboard-db` `write_query`): it skips those rules and leaves no trail. Raw SQL is for reads only. When the MCP isn't loaded, the same operations are on `flowboard-cli` (`flowboard-cli story move FB-12 refining`; `--help` lists them).
+Every write goes through the `flowboard` MCP (`story_*`, `subtask_*`, `epic_*`, `pr_*`, `project_show`). Each call enforces the ladder, the assignee rule and the Run trail, so this skill never restates them. **Never write with raw SQL** (`flowboard-db` `write_query`): it skips those rules and leaves no trail. Raw SQL is for reads only. When the MCP isn't loaded, the same operations are on `flowboard-cli` (`flowboard-cli story move FB-12 refining`; `--help` lists them).
 
 ## 1. Resolve the project
 
@@ -50,7 +50,14 @@ The assignee is set by the move itself. Don't set it.
 | Move a Subtask | `subtask_move` |
 | File a bug found while testing | `subtask_create` with `bug: true`, then `story_move` back to `building` |
 | Depends on another Story | `story_link` |
+| Start a Verify round (lights Verify on the Run graph) | `verify_start` with the Subtask's key |
 | Start a Review round (lights Code review on the Run graph) | `review_start` |
+| File a defect found in production (a bug Story, enters `backlog`) | `story_create` with `bug: true` |
+| New epic (a goal grouping several Stories; starts open at `todo`) | `epic_create` with `project`, `title`, `description`, `labels` |
+| Close or cancel an epic (`todo → done` or `canceled`, no reopening) | `epic_move` |
+| Put a Story in an epic, or take it out | `story_edit` with `epic`: an open epic's key, or `null` to take it out |
+
+An epic is never built: it has no Subtasks, sprint, points or Run. A `done` or `canceled` Story's epic can't change.
 
 Briefs are complete: a Story's description is the only thing handed to the next Stage, so it carries the goal, the definition of done and links to any spec, ADR or prototype. A Subtask's detail lives in the Story's description too; its own description names the slice and who builds it.
 

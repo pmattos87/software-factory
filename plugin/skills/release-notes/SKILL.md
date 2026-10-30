@@ -41,7 +41,7 @@ Pedro reviews these before any slide exists:
 - **Table 1, major:** big features and critical fixes. Description is 2–3 sentences.
 - **Table 2, minor:** everything else. Description is **one short line**, just enough to identify it.
 - **Merge rows that are one feature for the reader**, even when they were separate Stories.
-- **Type = what it did, not the board's type or the branch prefix.** Use `New feature` · `Improvement` · `Bug fix` · `Bug fix (tests)`. A Story that fixed a defect is a `Bug fix` whatever its branch says. Say in one line that you assigned the types.
+- **Type starts from the board's type**, the `type` of each pick in `release_show`: a `bug` (a bug Story) is a `Bug fix`, or `Bug fix (tests)` when it only fixed tests. A `story` is a `New feature` or an `Improvement`, judged from its commits, not its branch prefix; one that only fixed a defect (filed before bug Stories existed) is still a `Bug fix`. Say in one line how you assigned the types.
 - Expect Pedro to move rows between the tables. Don't argue the split.
 
 ## 3. Ask before building
