@@ -50,6 +50,7 @@ The assignee is set by the move itself. Don't set it.
 | Move a Subtask | `subtask_move` |
 | File a bug found while testing | `subtask_create` with `bug: true`, then `story_move` back to `building` |
 | Depends on another Story | `story_link` |
+| Start a Review round (lights Code review on the Run graph) | `review_start` |
 
 Briefs are complete: a Story's description is the only thing handed to the next Stage, so it carries the goal, the definition of done and links to any spec, ADR or prototype. A Subtask's detail lives in the Story's description too; its own description names the slice and who builds it.
 

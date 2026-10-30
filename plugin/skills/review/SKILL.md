@@ -43,7 +43,9 @@ Don't paste the diff: Codex reads it from the repo.
 
 ## 3. Run Codex
 
-From the repo root:
+First `review_start` with the Story key: it logs the round's start on the trail, and the Run graph lights Code review from it. Call it once per round, round 2 included. A refusal (the Story isn't building, or its Run is stopped) stops the step, as any refused board call does.
+
+Then, from the repo root:
 
 ```
 node "<this skill's base directory>/../../scripts/codex-review.mjs" --request "$dir/request.md" --head <head> --out "$dir" [--resume <session>]
@@ -55,7 +57,7 @@ It prints one JSON object. By exit code:
 
 - **0, `ok`**: the verdict is in `.verdict`. Save `.session` to the `session` file, then go to step 4.
 - **2, `unavailable`**: Codex is missing, failed or timed out. Review waits: `run_stop` with `Review waits: Codex unavailable: <reason>`. This isn't a failed round, and nothing is recorded with `review_record`.
-- **3, `invalid`**: the answer isn't a verdict on `head` (the reason says why). Run the same round once more. A second invalid answer: `run_stop` with `Review waits: Codex gave no usable verdict: <reason>`.
+- **3, `invalid`**: the answer isn't a verdict on `head` (the reason says why). Run the same round once more, without a new `review_start`: it is still the same round. A second invalid answer: `run_stop` with `Review waits: Codex gave no usable verdict: <reason>`.
 
 ## 4. Record the round
 
@@ -107,7 +109,7 @@ If the bug Subtask's Verify fails twice, the Run stops there, as with any Subtas
 
 ## Outside a Run
 
-Pedro may ask for a Review by hand on a Story he built himself. Steps 1 to 4 are the same. On a fail, report the findings and stop: the fixes are his, and the next Review is round 2.
+Pedro may ask for a Review by hand on a Story he built himself. Steps 1 to 4 are the same, `review_start` included. On a fail, report the findings and stop: the fixes are his, and the next Review is round 2.
 
 ## Guardrails
 
