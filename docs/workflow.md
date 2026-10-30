@@ -51,7 +51,7 @@ None of them touches the board, commits or pushes: each ends with a fixed result
 
 Codex (`gpt-6-astra`, high effort) reviews each Story once, after Docs and before the PR, on the whole diff from production to the branch's head. It runs headless in a read-only sandbox through [codex-review.mjs](../plugin/scripts/codex-review.mjs), which finds `codex` through `FACTORY_CODEX`, then PATH, then the ChatGPT VS Code extension.
 
-- **A round** posts Codex's findings as a comment on the Story and records the verdict on the commit it read (`review_record`). A pass covers that commit only: any later commit needs a new round, and the PR gate checks it.
+- **A round** starts with `review_start`, which lights Code review on the Run graph while Codex runs. It posts Codex's findings as a comment on the Story and records the verdict on the commit it read (`review_record`). A pass covers that commit only: any later commit needs a new round, and the PR gate checks it.
 - **A blocking finding** names its trigger, impact, location and evidence; anything less is a suggestion, and suggestions never fail a Review. They go to Pedro in the Run's report.
 - **A failed round 1** becomes a bug Subtask, `Review round 1 findings`, built, Verified and committed like any Subtask; the builder answers every finding. Round 2 resumes the same Codex session to check those answers.
 - **A failed round 2** stops the Run for Pedro, with the findings linked.
