@@ -111,8 +111,17 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
    ```
 
 6. `release_move` the Release to `released`. Its Stories move to `done` with it; a refusal names the pick that blocks it.
-7. **Delete the branches** the Release no longer needs: each pick's Feature branch and the Release branch, on origin (`git push origin --delete <branch>`) and locally (`git branch -D <branch>`). Only this Release's branches: a Story not in it keeps its Feature branch, whatever its state.
-8. Switch back to the branch you started on.
+7. **Flag finished epics.** Take the open epics of the picks (the `epic` in each `story_show`, when its status is `todo`). Read each one's Stories with `flowboard-db` `read_query`, since no MCP call lists them yet:
+
+   ```sql
+   SELECT t.task_number, t.status FROM tasks t
+   WHERE t.epic_id = (SELECT e.id FROM tasks e JOIN projects p ON p.id = e.project_id
+                      WHERE p.key = '<KEY>' AND e.task_number = <N>)
+   ```
+
+   An epic whose Stories are all `done` or `canceled` is ready to close: name it in the report. Never `epic_move` it yourself; closing it is Pedro's call.
+8. **Delete the branches** the Release no longer needs: each pick's Feature branch and the Release branch, on origin (`git push origin --delete <branch>`) and locally (`git branch -D <branch>`). Only this Release's branches: a Story not in it keeps its Feature branch, whatever its state.
+9. Switch back to the branch you started on.
 
 ## 7. Client projects: User testing
 
@@ -158,7 +167,7 @@ The final tag `v<version>` goes on the merge commit in production, as on an Inte
 
 ## 8. Report
 
-The version, where the Release stands now, the picked Stories (key, title, status), and the links: the PR, the GitHub Release and its assets once finished. When the skill stopped for Pedro, say exactly what he has to do and that running it again picks up from there.
+The version, where the Release stands now, the picked Stories (key, title, status), and the links: the PR, the GitHub Release and its assets once finished. After 6. Finish, each epic flagged in step 6.7 (key and title), with the `epic_move` to `done` that closes it once Pedro says so. When the skill stopped for Pedro, say exactly what he has to do and that running it again picks up from there.
 
 ## Guardrails
 

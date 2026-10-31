@@ -59,6 +59,22 @@ The assignee is set by the move itself. Don't set it.
 
 An epic is never built: it has no Subtasks, sprint, points or Run. A `done` or `canceled` Story's epic can't change.
 
+## Epics
+
+Offer an epic at two moments. Pedro decides each time; never put a Story in an epic without his yes.
+
+- **Several Stories toward one goal**: an approved plan writes two or more of them, or Pedro splits one Story into several. Offer to create an epic for them (`epic_create`) or to reuse an open one.
+- **A single new Story**: suggest the open epic it fits, if one does. When none fits, say so; don't propose a new epic for one Story.
+
+The open epics are read with `flowboard-db` `read_query`, since no MCP call lists them yet:
+
+```sql
+SELECT t.task_number, t.title FROM tasks t JOIN projects p ON p.id = t.project_id
+WHERE p.key = '<KEY>' AND t.type = 'epic' AND t.status = 'todo'
+```
+
+On a yes, `story_create` each Story, then `story_edit` it with `epic`. Closing an epic is promote's job: it flags one whose Stories are all `done` or `canceled`, and Pedro closes it.
+
 Briefs are complete: a Story's description is the only thing handed to the next Stage, so it carries the goal, the definition of done and links to any spec, ADR or prototype. A Subtask's detail lives in the Story's description too; its own description names the slice and who builds it.
 
 ## Refused moves
