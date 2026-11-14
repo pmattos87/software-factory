@@ -13,7 +13,7 @@ Board reads go through the `flowboard` MCP; its project resolution (`factory:sto
 
 ## 0. The project's settings
 
-1. `project_show`: the project must be a Client project. An Internal one has no client to write for: say so, and point at the notes `promote` puts on the GitHub Release.
+1. `project_show`: the project must be a Client project. An Internal one has no client to write for: say so, and point at the notes `promote` puts on the GitHub Release. Keep its `client.logo_data` (the client's logo as a data URL, or `null`) for the cover.
 2. `release.notes` in `.claude/factory.json` (`check-release.mjs --client` checks it): `client` (who reads the deck), `language`, `staging` (a URL, or the command that launches the staging app), and an optional `guide`.
 3. **Read the guide** when there is one. It is the project's own lore: the deck's theme (palette, font files, logo, cover wording Pedro chose), the UI labels in the project's language, the recurring cast of people and companies, how to launch and drive staging, and the traps hit last time. It wins over this file wherever they differ.
 
@@ -60,7 +60,7 @@ Use `AskUserQuestion`, at most two rounds. Defaults, marked (Recommended):
 
 Copy [deck-shell.html](deck-shell.html) into the scratchpad, next to an `img/` folder for the screenshots and a `fonts/` folder for the guide's font files. The shell's comment says what to fill: the theme from the guide (its `:root` values and `@font-face` files), every `{{...}}` slot, and one copy of each slide type per row. Never a web-font link or a remote image: the deck is printed from a local file.
 
-1. **Cover.** The app's logo, the project name, the version (`v<version>`, or `v<version> beta <n>` for a beta deck), and the date. Wording from the guide when it has some.
+1. **Cover.** The app's logo, the project name, the version (`v<version>`, or `v<version> beta <n>` for a beta deck), and the date. Wording from the guide when it has some. When `project_show` gave a `client.logo_data`, the client's logo goes next to the app logo (the shell's `client-logo` slot: the data URL is the `src` as it is, so nothing is fetched or saved). With no logo, or no `logo_data` field at all (an older Flowboard), delete that slot and the cover is as before. The guide wins where it says otherwise about the cover.
 2. **Overview.** "N changes", then three cards: New features / Improvements / Fixes, in the deck's language. The counts come from the Type column after merging rows.
 3. **One slide per Table 1 row.** Text on the left, a screenshot on the right. On the left: a type pill, a title, one paragraph, and 2–4 bullets about what changes in the client's day.
 4. **One slide per type for Table 2**, sized to fit: a card grid of "**Where** · what changed". Split a type across two slides past about ten rows.
