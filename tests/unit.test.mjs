@@ -795,3 +795,21 @@ test('treeKey keys a directory link by its target, so retargeting it changes the
   fs.symlinkSync(path.join(dir, 'versions/good'), path.join(dir, 'current'), 'junction');
   assert.equal(treeKey(dir), good, 'pointing it back restores the key');
 });
+
+test('the deck cover takes the client logo as a data URL, and drops cleanly without one', () => {
+  const deck = fs.readFileSync(path.resolve(import.meta.dirname, '../plugin/skills/release-notes/deck-shell.html'), 'utf8');
+  const slot = /^.*class="client-logo" src="\{\{client\.logo_data\}\}".*\n/m;
+  assert.match(deck, slot);
+  assert.ok(unfilledSlots(deck).includes('{{client.logo_data}}'), 'an unfilled client logo is caught before printing');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-cover-'));
+  const logo = 'data:image/png;base64,iVBORw0KGgo=';
+  const { html, inlined, missing } = inlineAssets(deck.replace('{{client.logo_data}}', logo), dir);
+  assert.ok(html.includes(`class="client-logo" src="${logo}"`), 'the data URL is kept as it is');
+  assert.ok(!inlined.includes(logo) && !missing.includes(logo));
+  assert.deepEqual(remoteRefs(html), []);
+
+  const without = deck.replace(slot, '');
+  assert.doesNotMatch(without, /client-logo"|\{\{client\./);
+  assert.ok(!unfilledSlots(without).includes('{{client.logo_data}}') && !unfilledSlots(without).includes('{{Client}}'));
+});

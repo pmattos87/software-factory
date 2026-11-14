@@ -15,6 +15,8 @@
   - Slides: keep the cover and the overview; copy the "major" slide once per
     Table 1 row and a "minor" slide per type in Table 2; delete the rest.
     Number the footers 02, 03... in order.
+  - Client logo: the cover's client-logo slot takes project_show's
+    client.logo_data (a data URL) as its src. No client logo: delete the slot.
   - Images: paths relative to this file (img/...). Each frame is sized to its
     content; crop each shot to its useful area first, or a wide shot becomes
     unreadable.
@@ -65,8 +67,9 @@
   /* cover */
   .cover { background: var(--cover); color: #fff; padding: 0; display: grid; grid-template-columns: 1fr 760px; }
   .cover .l { padding: 120px 112px; display: flex; flex-direction: column; justify-content: space-between; }
-  .cover .r { background: rgba(0,0,0,.25); border-left: 14px solid var(--new); display: flex; align-items: center; justify-content: center; }
+  .cover .r { background: rgba(0,0,0,.25); border-left: 14px solid var(--new); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 72px; }
   .cover .r img { max-width: 600px; max-height: 600px; }
+  .cover .r .client-logo { max-width: 420px; max-height: 260px; }
   .cover .kicker { font-family: var(--mono); font-size: 26px; letter-spacing: .18em; text-transform: uppercase; color: var(--new); }
   .cover h1 { font-size: 150px; line-height: .95; margin-top: 30px; }
   .cover .sub { font-size: 38px; line-height: 1.35; opacity: .8; margin-top: 40px; max-width: 880px; }
@@ -101,7 +104,10 @@
     </div>
     <div class="meta">{{date}}</div>
   </div>
-  <div class="r"><img src="{{img/logo.png}}" alt="{{Project}}"></div>
+  <div class="r">
+    <img src="{{img/logo.png}}" alt="{{Project}}">
+    <img class="client-logo" src="{{client.logo_data}}" alt="{{Client}}"><!-- project_show client.logo_data; delete this line when there is none -->
+  </div>
 </section>
 
 <!-- 2. Overview: "N changes", then one card per type, counts from the merged tables -->
