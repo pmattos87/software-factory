@@ -34,6 +34,8 @@ Delegate to the `factory:task-splitter` agent, on opus unless `factory.json` ove
 
 Check its result before showing it: every Subtask names an eligible builder, has points, a risk line, a `files` line and at least one "done when" item. Send it back with what is missing rather than patching it yourself.
 
+**Lifecycle Stories.** When the Story adds or changes something with a lifecycle, its brief needs a `## Lifecycle` section (states and how each is decided, transitions, effects from other entities, date boundaries: the template is in the Task splitter's instructions). If the brief has none and the splitter didn't propose one under *Brief changes*, send it back for one. A lifecycle Story without that section is not ready to build: it stays out of `ready` until Pedro approves the section (step 4) and it is written into the brief (step 5). Review holds the code to it ([review standard](../../review/standard.md#state)).
+
 **Then check the unreleased work.** The splitter finds dependencies by reading; this checks its reading. From the repo root, with every file the Subtasks list:
 
 ```
@@ -77,7 +79,7 @@ In this order, so the plan can name the keys:
 
 ## 6. Hand over
 
-Read back with `story_show` and report each Subtask key with its agent and points, and the Story's `story_points`: it should equal the total Pedro approved. A Story at 0 can't move to `ready`, so a 0 here means the Subtasks weren't written; say so rather than moving it. Then ask Pedro whether the plan is approved to move the Story to `ready`. On a yes, `story_move` it there and remind him it needs a sprint (`story_set_sprint`) before `factory:run` can start.
+Read back with `story_show` and report each Subtask key with its agent and points, and the Story's `story_points`: it should equal the total Pedro approved. A Story at 0 can't move to `ready`, so a 0 here means the Subtasks weren't written; say so rather than moving it. Nor can a lifecycle Story whose brief lacks its `## Lifecycle` section (step 3). Then ask Pedro whether the plan is approved to move the Story to `ready`. On a yes, `story_move` it there and remind him it needs a sprint (`story_set_sprint`) before `factory:run` can start.
 
 ## Guardrails
 

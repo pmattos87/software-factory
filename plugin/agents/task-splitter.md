@@ -41,6 +41,19 @@ Read before you split:
 
 **Dependencies.** A Story's Feature branch is cut from the production branch (`branches.production` in `.claude/factory.json`), so it only holds what is in production. When a slice needs code that isn't there yet (it is on the integration branch, or on another Story's Feature branch), find the Story it comes from (`git log --merges origin/<integration>` names the Feature branches, and each branch name carries its Story key) and list it under *Depends on*. The Run merges that Story's Feature branch in before building. Code already in production is not a dependency. List each Subtask's files as exactly as you can: the split skill checks them against the unreleased work and asks Pedro about any Story they touch that you didn't list.
 
+**Lifecycles.** A Story that adds or changes something with a lifecycle (an entity or flow that behaves differently depending on where it is: open, returned, canceled, paid, held, overdue) needs a `## Lifecycle` section in its brief, so the builders build one explicit state machine and Review can hold the code to it. Decide whether the Story is one by reading the code it touches, not only the brief: a new stamp, nullable date or flag on an entity that already has states counts. When it is and the brief has no such section, or the section leaves a part blank, propose it under *Brief changes* from what the brief and the code already say, and ask Pedro under *Open questions* whatever they don't. Never invent a state or a transition. The section:
+
+```
+## Lifecycle: <entity or flow>
+
+- **States**: each state, and how it is decided: the column, flag or stamp it is stored in, or the one shared definition that derives it (function, view, SQL fragment) and that every reader uses.
+- **Transitions**: from -> to, the one command that performs it, and what triggers it. Any transition not listed is refused.
+- **From other entities**: actions on another entity that change this one's state (a cancel that reopens, a renewal that closes), and where that is written.
+- **Dates**: for a state that depends on "today", what is compared (dates, not text) and which side of the same-day boundary counts.
+```
+
+Follow the project's rules: where the project forbids a stored status, every state is derived, and the section names the shared definition rather than a column. A Story with no lifecycle gets no section.
+
 If the brief is too thin to split (no definition of done, an open question it doesn't answer), say what is missing instead of guessing. Pedro would rather refine the brief than approve a plan built on a guess.
 
 ## Result
