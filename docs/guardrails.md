@@ -73,7 +73,9 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `release.assets.beta`, `release.assets.production` | Client projects: two sets, each `{ build, files }` as above, in place of the single one. A beta's pre-release carries only the beta set (the test installer). The production set is built only for the final Release, from the merge commit, after the client approved and Pedro merged. `check-release.mjs --client` requires both, and every `files` pattern must carry `<version>`, so it never matches an installer left from another version. An Internal project keeps the single `release.assets`, which is its production set. `release-assets.mjs <beta or production> <version>`, once the set's build ran, lists its files. |
 | `release.changelog` | Optional: the project's changelog file (e.g. `docs/CHANGELOG.md`, Keep a Changelog format). When set, the Docs agent writes each Story's entry to `docs/changes/<KEY>.md` instead of the changelog, and promote rebuilds the version's section from exactly the picked Stories' files at the cut and after every sync (`release-version.mjs changelog`). The files stay in the repo; entries from before the setting move once into `docs/changes/unreleased-v<version>.md`. `check-release.mjs` checks the file exists. |
 | `release.documents.folder` | Client projects, optional: the project's folder under the Releases root ([User-level config](#user-level-config)), a plain name like `Hammer loc - CRM`. Default: the repo folder's name (the main checkout's, also from a worktree). |
-| `release.notes` | Client projects only, for `release-notes` and `test-guide`: `client` (who reads the deck), `language`, `staging` (where screenshots are taken and the test guide is dry-run: a URL, or the command that launches the staging app), and an optional `guide`, a Markdown file in the repo with the project's own lore: the theme both documents share (palette in light and dark, woff2 font files, logo), the cover wording, the UI labels in the project's language, the recurring cast of people and companies the scenarios use, the staging setup, and the screenshot traps. |
+| `release.notes` | Client projects only, for `release-notes` and `test-guide`: `client` (who reads the deck), `language`, and an optional `guide`, a Markdown file in the repo with the project's own lore: the theme both documents share (palette in light and dark, woff2 font files, logo), the cover wording, the UI labels in the project's language, the recurring cast of people and companies the scenarios use, the release environment's setup, and the screenshot traps. `release.notes.staging` is gone: screenshots and dry runs happen on `environments.release`, and `check-release.mjs` fails while a project still sets it. |
+| `environments.integration` | Client projects: what Pedro tests the integration branch with, in `integrated_tests`, and what by-eye checks use. `launch` (a URL, or the command that starts it), an optional `build` (commands run first) and `data`, the folder that holds its database. |
+| `environments.release` | Client projects: what the client installs, where every beta runs and where `release-notes` and `test-guide` take screenshots and dry-run, with the beta's build. Same keys as `integration`. It only ever runs code in production or in a Release branch, so its database is never ahead of a beta ([Data environments](workflow.md#data-environments)). |
 
 A Client project's assets, as Hammer Loc sets them:
 
@@ -90,7 +92,16 @@ A Client project's assets, as Hammer Loc sets them:
 }
 ```
 
-`node <plugin>/scripts/check-release.mjs [--client]`, run from the repo root, checks the `release` key: every version file exists and carries the same version, assets have a build, and a Client project has both asset sets, with `<version>` in every pattern, its notes settings, and a Releases root that exists.
+`node <plugin>/scripts/check-release.mjs [--client]`, run from the repo root, checks the `release` key: every version file exists and carries the same version, assets have a build, and a Client project has both asset sets, with `<version>` in every pattern, its notes settings, a Releases root that exists, and both environments, each with its `launch` and `data`, on data folders apart. The folders are compared resolved (against the repo root), with `%APPDATA%`-style variables and a leading `~` expanded, case-insensitively: the same folder fails, and so does one inside the other.
+
+A Client project's environments, for example a Tauri app with one app identifier per environment:
+
+```json
+"environments": {
+  "integration": { "launch": "npm run dev:integration", "data": "%APPDATA%\\com.example.app.integration" },
+  "release": { "build": ["npm ci"], "launch": "npm run dev:staging", "data": "%APPDATA%\\com.example.app.staging" }
+}
+```
 
 ### User-level config
 

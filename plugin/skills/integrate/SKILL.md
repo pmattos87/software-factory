@@ -74,7 +74,7 @@ Never `--squash`, `--rebase` or `--delete-branch`: the Feature branch lives on u
 
 ## 7. Hand over to Pedro
 
-`pr_set_state` the PR as `merged`, then `story_move` the Story to `integrated_tests`. Report the PR link, the commits, any conflict resolved and how, and that the Story now waits for Pedro's test on the integration branch.
+`pr_set_state` the PR as `merged`, then `story_move` the Story to `integrated_tests`. Report the PR link, the commits, any conflict resolved and how, and that the Story now waits for Pedro's test on the integration branch. On a Client project, say which environment that test uses: `environments.integration` in `.claude/factory.json` (its `build` when it has one, its `launch`, its own `data` folder), never `environments.release`, which only runs production or Release branch code so the client's betas never meet a database the integration branch's migrations moved ahead. Any by-eye check you run on the integration branch uses `environments.integration` too.
 
 ## Resolve a conflict with the integration branch
 
