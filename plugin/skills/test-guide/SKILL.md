@@ -5,7 +5,7 @@ description: Build the client's step-by-step test guide for a Client project's R
 
 # Test guide: how the client tests what changed
 
-Part of User testing on Client projects, beside `factory:release-notes`: the deck says what changed, the guide says how to try it. Its input is a Release on Flowboard, or one beta of it. Its output is `<project-key>-test-guide-v<version>[-beta.<n>].html`, one file with no network request, which promote attaches to the beta's pre-release next to the installer and the deck.
+Part of User testing on Client projects, beside `factory:release-notes`: the deck says what changed, the guide says how to try it. Its input is a Release on Flowboard, or one beta of it. Its output is `<project-key>-test-guide-v<version>[-beta.<n>].html`, one file with no network request, which promote attaches to the beta's pre-release next to the installer and the deck. The file and its source are written to the Release's folder under the Releases root (step 0.4), never only to the scratchpad, which can be wiped.
 
 Five stages, with a checkpoint where Pedro reviews the scenarios before any dry run: **1. inventory → 2. scenarios → 3. dry run → 4. render → 5. check.**
 
@@ -16,6 +16,7 @@ Board reads go through the `flowboard` MCP; its project resolution (`factory:sto
 1. `project_show`: the project must be a Client project. An Internal one has no client tester: say so and stop.
 2. `release.notes` in `.claude/factory.json` (`check-release.mjs --client` checks it): `language` and `staging`, and the optional `guide`.
 3. **Read the guide** when there is one. For the test guide it holds the theme (palette, font files), the UI labels in the project's language, the recurring cast (people and companies the scenarios are about), and how to launch and drive staging. It wins over this file wherever they differ.
+4. **The folder.** From the repo root, `node "<this skill's base directory>/../../scripts/release-folder.mjs" <version> <n> --create` (no `<n>` for the Release itself) creates and prints the folder, `<Releases root>\<project>\Release <version>\beta.<n>\`, the same one `release-notes` writes the deck to. Below, `<folder>` is that path. The guide's HTML goes in it; its source (`guide.html`, `fonts/`, any images) goes in `<folder>\guide-source\`. A `FAIL` stops here: the Releases root is set in `~/.claude/factory.user.json` (`releasesRoot`). Nothing under the Releases root is committed to a repo.
 
 ## 1. Inventory what to test
 
@@ -43,7 +44,7 @@ Draft them for Pedro before anything else. Each scenario has:
 
 Follow **every** scenario on staging, with the beta's build (switch to `v<version>-beta.<n>` or `release/v<version>` before launching), never production.
 
-1. **Back up staging's data first**, into the scratchpad.
+1. **Back up staging's data first**, into the scratchpad (a backup is the one thing that may stay there).
 2. Launch and drive staging as `release-notes` section 5 does (its `scripts/cdp.mjs` drives a WebView2 app over DevTools).
 3. Do each step as written. When an expected result turns out wrong because the guide was wrong, fix the guide. When it is wrong because the app is wrong, it's a bug: report it, and keep the expected result as the brief says it should be.
 4. **Staging hygiene.** Stop only the processes you started, by PID, after checking their path: stopping `tauri dev`'s npm can leave the app running. Never kill a browser by image name: that closes Pedro's own windows. Compare staging's data with the backup at the end, and list everything you changed.
@@ -52,12 +53,12 @@ Keep a **coverage table** as you go: each scenario, whether it was verified, how
 
 ## 4. Render
 
-Copy [guide-shell.html](guide-shell.html) into the scratchpad, beside a `fonts/` folder with the guide's woff2 files. Fill what its comment names: the `lang`, title and labels in the project's language, the theme from the guide, and `GUIDE`: the storage key `<project-key>-test-guide-v<version>[-beta.<n>]` (so each beta starts with no ticks) and the approved scenarios. Keep the shell's markup and script.
+Copy [guide-shell.html](guide-shell.html) into `<folder>\guide-source\` as `guide.html`, beside a `fonts/` folder with the guide's woff2 files. **Beta 2 and later start from the previous beta's sources** instead: copy `beta.<n-1>\guide-source\` (`release-folder.mjs <version> <n-1>` prints its folder) into `<folder>\guide-source\`, keep its theme, fonts and labels, and replace the storage key and the scenarios with this beta's. Fill what its comment names: the `lang`, title and labels in the project's language, the theme from the guide, and `GUIDE`: the storage key `<project-key>-test-guide-v<version>[-beta.<n>]` (so each beta starts with no ticks) and the approved scenarios. Keep the shell's markup and script.
 
-Then embed the fonts and check nothing loads from elsewhere:
+Then embed the fonts and check nothing loads from elsewhere, from `<folder>\guide-source\`:
 
 ```
-node "<this skill's base directory>/../../scripts/inline-assets.mjs" guide.html <project-key>-test-guide-v<version>[-beta.<n>].html
+node "<this skill's base directory>/../../scripts/inline-assets.mjs" guide.html ../<project-key>-test-guide-v<version>[-beta.<n>].html
 ```
 
 Exit 0 means the file is self-contained. Exit 1 prints each `missing` file, each `network` reference and each `unfilled` shell slot: fix the source and run it again. Ticks stay in the tester's browser (localStorage); bugs still reach Pedro by WhatsApp or email, so the guide has no submit button.
@@ -72,7 +73,7 @@ Exit 0 means the file is self-contained. Exit 1 prints each `missing` file, each
 
 Report, in this order:
 
-1. The file's path and size, and that `inline-assets.mjs` passed.
+1. The file's path in `<folder>` and its size, and that `inline-assets.mjs` passed.
 2. The coverage table.
 3. Expected results you changed in the dry run, and bugs you found in the app.
 4. **Everything you changed on staging**, where the backup is, and whether the staging app is still running.

@@ -9,6 +9,7 @@ import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scri
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides, ROLE_AGENTS } from '../plugin/scripts/lib/specialists.mjs';
 import { releaseSettings, readVersion, checkRelease, assetSets, assetPatterns } from '../plugin/scripts/lib/release.mjs';
+import { releaseFolder, projectFolder, userConfigPath, loadUserConfig, checkReleasesRoot, checkDocuments } from '../plugin/scripts/lib/releases.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
@@ -224,6 +225,79 @@ test('release-assets lists only the set and version asked for', () => {
   assert.equal(r.status, 1);
   assert.equal(r.stdout, 'FAIL release.assets.beta is not set\n');
   assert.equal(run('nightly', '1.6.0').status, 2);
+});
+
+test('release documents go under the Releases root, by project, Release and beta', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-releases-'));
+  assert.equal(releaseFolder('D:\\Releases', 'Hammer loc - CRM', '1.6.0', 2), path.join('D:\\Releases', 'Hammer loc - CRM', 'Release 1.6.0', 'beta.2'));
+  assert.equal(releaseFolder('D:\\Releases', 'Hammer loc - CRM', '1.6.0'), path.join('D:\\Releases', 'Hammer loc - CRM', 'Release 1.6.0'));
+  assert.equal(userConfigPath({ FACTORY_USER_CONFIG: 'x.json' }), 'x.json');
+  assert.equal(userConfigPath({}), path.join(os.homedir(), '.claude', 'factory.user.json'));
+  assert.deepEqual(loadUserConfig(path.join(base, 'none.json')), {});
+
+  // The project folder is the repo folder's name, the main checkout's even from a worktree.
+  const repo = path.join(base, 'My Repo');
+  fs.mkdirSync(repo);
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
+  git(repo, 'worktree', 'add', '-q', path.join(base, 'wt'), '-b', 'other');
+  assert.equal(projectFolder(repo, {}), 'My Repo');
+  assert.equal(projectFolder(path.join(base, 'wt'), {}), 'My Repo');
+  assert.equal(projectFolder(path.join(base, 'wt'), { documents: { folder: 'Hammer loc - CRM' } }), 'Hammer loc - CRM');
+  assert.deepEqual(checkDocuments({ documents: { folder: 'Hammer loc - CRM' } }), []);
+  assert.deepEqual(checkDocuments({ documents: { folder: 'a\\b' } }), ['release.documents.folder "a\\\\b" must be a plain folder name, with no path']);
+
+  const releases = path.join(base, 'Releases');
+  assert.deepEqual(checkReleasesRoot({}, repo, 'u.json'), ["releasesRoot is not set in u.json: name the folder that holds every project's Release documents"]);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: 'Releases' }, repo, 'u.json'), ['releasesRoot Releases in u.json must be an absolute path']);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: releases }, repo, 'u.json'), [`releasesRoot ${releases} doesn't exist`]);
+  fs.mkdirSync(releases);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: releases }, repo, 'u.json'), []);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: path.join(repo, 'out') }, repo, 'u.json').length, 1);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('check-release --client flags a missing Releases root; release-folder prints and creates the folder', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-release-folder-'));
+  const repo = path.join(base, 'Hammer loc - CRM');
+  fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.6.0"}');
+  fs.writeFileSync(path.join(repo, '.claude/factory.json'), JSON.stringify({
+    boardKey: 'HL',
+    release: { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes: { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' } },
+  }));
+  const userFile = path.join(base, 'factory.user.json');
+  const env = { ...process.env, FACTORY_USER_CONFIG: userFile };
+  const script = (name, ...args) => spawnSync('node', [path.resolve(import.meta.dirname, `../plugin/scripts/${name}`), ...args], { cwd: repo, encoding: 'utf8', env });
+
+  let r = script('check-release.mjs', '--client');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FAIL releasesRoot is not set in .*factory\.user\.json/);
+  assert.equal(script('check-release.mjs').status, 0, 'an Internal check needs no Releases root');
+  assert.equal(script('release-folder.mjs', '1.6.0', '1').status, 1);
+
+  const releases = path.join(base, 'Releases');
+  fs.writeFileSync(userFile, JSON.stringify({ releasesRoot: releases }));
+  r = script('check-release.mjs', '--client');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, `FAIL releasesRoot ${releases} doesn't exist\n`);
+
+  fs.mkdirSync(releases);
+  assert.equal(script('check-release.mjs', '--client').status, 0);
+  const beta = path.join(releases, 'Hammer loc - CRM', 'Release 1.6.0', 'beta.2');
+  r = script('release-folder.mjs', '1.6.0', '2');
+  assert.equal(r.stdout, beta + path.sep + '\n');
+  assert.equal(fs.existsSync(beta), false, 'prints without --create');
+  r = script('release-folder.mjs', '1.6.0', '2', '--create');
+  assert.equal(r.status, 0);
+  assert.equal(fs.statSync(beta).isDirectory(), true);
+  assert.equal(script('release-folder.mjs', '1.6.0').stdout, path.join(releases, 'Hammer loc - CRM', 'Release 1.6.0') + path.sep + '\n');
+  assert.equal(script('release-folder.mjs', 'v1.6.0').status, 2);
+  assert.equal(script('release-folder.mjs', '1.6.0', '0').status, 2);
+
+  fs.writeFileSync(userFile, '{');
+  assert.match(script('check-release.mjs', '--client').stdout, /FAIL .*factory\.user\.json is not valid JSON/);
+  fs.rmSync(base, { recursive: true, force: true });
 });
 
 test('the next version follows the commit types', () => {

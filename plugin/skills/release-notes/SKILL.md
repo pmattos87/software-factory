@@ -5,7 +5,7 @@ description: Build a client-facing PDF deck of what a Release (or one of its bet
 
 # Release notes: the Release, as slides the client can read
 
-Part of User testing on Client projects: the client gets a beta of a Release (`factory:promote` 7.1 and 7.2), and this deck tells them what to look at. Its input is a Release on Flowboard, or one beta of it. Its output is `<project-key>-release-notes-v<version>[-beta.<n>].pdf` (ASCII, no spaces: GitHub renames spaces in asset names), which promote attaches to the beta's pre-release next to the installer and the test guide (`factory:test-guide`).
+Part of User testing on Client projects: the client gets a beta of a Release (`factory:promote` 7.1 and 7.2), and this deck tells them what to look at. Its input is a Release on Flowboard, or one beta of it. Its output is `<project-key>-release-notes-v<version>[-beta.<n>].pdf` (ASCII, no spaces: GitHub renames spaces in asset names), which promote attaches to the beta's pre-release next to the installer and the test guide (`factory:test-guide`). The PDF and the deck's source are written to the Release's folder under the Releases root (step 0.4), never only to the scratchpad, which can be wiped.
 
 Four stages, each with a checkpoint where Pedro reviews before the next one starts: **1. inventory → 2. two tables → 3. questions → 4. deck.** Never skip to the deck.
 
@@ -16,6 +16,7 @@ Board reads go through the `flowboard` MCP; its project resolution (`factory:sto
 1. `project_show`: the project must be a Client project. An Internal one has no client to write for: say so, and point at the notes `promote` puts on the GitHub Release. Keep its `client.logo_data` (the client's logo as a data URL, or `null`) for the cover.
 2. `release.notes` in `.claude/factory.json` (`check-release.mjs --client` checks it): `client` (who reads the deck), `language`, `staging` (a URL, or the command that launches the staging app), and an optional `guide`.
 3. **Read the guide** when there is one. It is the project's own lore: the deck's theme (palette, font files, logo, cover wording Pedro chose), the UI labels in the project's language, the recurring cast of people and companies, how to launch and drive staging, and the traps hit last time. It wins over this file wherever they differ.
+4. **The folder.** From the repo root, `node "<this skill's base directory>/../../scripts/release-folder.mjs" <version> <n> --create` (no `<n>` for the Release itself) creates and prints the folder, `<Releases root>\<project>\Release <version>\beta.<n>\`. Below, `<folder>` is that path. The PDF goes in it; the deck's source (HTML, `img/`, `fonts/`, contact sheet) goes in `<folder>\deck-source\`. A `FAIL` stops here: the Releases root is set in `~/.claude/factory.user.json` (`releasesRoot`). Nothing under the Releases root is committed to a repo.
 
 ## 1. Inventory what the Release changes
 
@@ -58,7 +59,7 @@ Use `AskUserQuestion`, at most two rounds. Defaults, marked (Recommended):
 
 ## 4. Deck structure
 
-Copy [deck-shell.html](deck-shell.html) into the scratchpad, next to an `img/` folder for the screenshots and a `fonts/` folder for the guide's font files. The shell's comment says what to fill: the theme from the guide (its `:root` values and `@font-face` files), every `{{...}}` slot, and one copy of each slide type per row. Never a web-font link or a remote image: the deck is printed from a local file.
+Copy [deck-shell.html](deck-shell.html) into `<folder>\deck-source\` as `deck.html`, next to an `img/` folder for the screenshots and a `fonts/` folder for the guide's font files. **Beta 2 and later start from the previous beta's sources** instead: copy `beta.<n-1>\deck-source\` (`release-folder.mjs <version> <n-1>` prints its folder) into `<folder>\deck-source\`, keep its theme, fonts and cover, and replace the slides with this beta's rows. The shell's comment says what to fill: the theme from the guide (its `:root` values and `@font-face` files), every `{{...}}` slot, and one copy of each slide type per row. Never a web-font link or a remote image: the deck is printed from a local file.
 
 1. **Cover.** The app's logo, the project name, the version (`v<version>`, or `v<version> beta <n>` for a beta deck), and the date. Wording from the guide when it has some. When `project_show` gave a `client.logo_data`, the client's logo goes next to the app logo (the shell's `client-logo` slot: the data URL is the `src` as it is, so nothing is fetched or saved). With no logo, or no `logo_data` field at all (an older Flowboard), delete that slot and the cover is as before. The guide wins where it says otherwise about the cover.
 2. **Overview.** "N changes", then three cards: New features / Improvements / Fixes, in the deck's language. The counts come from the Type column after merging rows.
@@ -67,11 +68,11 @@ Copy [deck-shell.html](deck-shell.html) into the scratchpad, next to an `img/` f
 
 **A change with no screen** (a CLI, a hook, a CI check) gets the shell's terminal card instead of a screenshot, with **real command output captured on the spot**, never typed in by hand.
 
-**Print and check it.** From the scratchpad:
+**Print and check it.** From `<folder>\deck-source\`:
 
 ```
-node "<this skill's base directory>/scripts/print-pdf.mjs" deck.html <project-key>-release-notes-v<version>[-beta.<n>].pdf
-python -I "<this skill's base directory>/scripts/contact-sheet.py" <that pdf> sheet.png
+node "<this skill's base directory>/scripts/print-pdf.mjs" deck.html ../<project-key>-release-notes-v<version>[-beta.<n>].pdf
+python -I "<this skill's base directory>/scripts/contact-sheet.py" ../<that pdf> sheet.png
 ```
 
 `print-pdf.mjs` finds Edge or Chrome (or `FACTORY_BROWSER`) and prints headless with a private profile. Exit 2 means no browser: ask Pedro where one is, and don't fall back to another format. Then **look at the contact sheet**, every page: text overflowing its slide, a frame much bigger than its screenshot, a shot too wide to read. Fix the HTML and print again until every page is clean. Size each screenshot frame to its content, and crop each shot to its useful area before it goes in.
@@ -88,7 +89,7 @@ python -I "<this skill's base directory>/scripts/contact-sheet.py" <that pdf> sh
 
 Only from staging (`release.notes.staging`), **never production**, and with the Release branch's build: switch to `release/v<version>` (or the beta tag) before launching, so the screenshots show what the client will test.
 
-1. **Back up staging's data first** (its database or seed), into the scratchpad. Everything you change happens on staging only, and you list it at the end.
+1. **Back up staging's data first** (its database or seed), into the scratchpad (a backup is the one thing that may stay there). Everything you change happens on staging only, and you list it at the end.
 2. **Launch it.** For a URL, open it in the browser tools. For a launch command, run it in the background. A WebView2 desktop app (Tauri) exposes DevTools when launched with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222"`; wait until `curl -s http://127.0.0.1:9222/json` lists a `page`.
 3. **Drive it** with [scripts/cdp.mjs](scripts/cdp.mjs) (copy it into the scratchpad): `node cdp.mjs eval "<js>"`, or `node cdp.mjs run steps.mjs`, where the steps file exports `async ({ go, ev, click, fill, shot, wait, send }) => {}`. Navigate, act and shoot in **one** `run`: the viewport override lasts one connection. `fill` uses the native setter and an `input` event, which React inputs need.
 4. **PDFs** the app produces: render a band of a page with [scripts/render-pdf.py](scripts/render-pdf.py) (`python -I render-pdf.py <in.pdf> <out.png> [top] [bottom] [page]`, in a scratchpad venv with `pymupdf`), shown on a light frame.
@@ -96,7 +97,7 @@ Only from staging (`release.notes.staging`), **never production**, and with the 
 6. **Demo data must be obviously fake**: `contato@exemplo.com.br`, test document numbers. Show the client's own scenario where you know it. A value typed only for a shot is never saved.
 7. A good state for a fixed bug is often **a warning working correctly**, not a screen where nothing goes wrong.
 
-Save every image into the deck's `img/` folder and reference it by its relative path. Nothing is uploaded anywhere.
+Save every image into `<folder>\deck-source\img\` and reference it by its relative path. Nothing is uploaded anywhere.
 
 The guide adds the project's own routes, commands, and traps. When you hit a new trap, tell Pedro at the end so it goes into the guide.
 
@@ -104,7 +105,7 @@ The guide adds the project's own routes, commands, and traps. When you hit a new
 
 Report, in this order:
 
-1. The PDF's path and the contact sheet's, and how many pages it has.
+1. The PDF's path in `<folder>` and the contact sheet's in `deck-source\`, and how many pages it has.
 2. Wording that differs from the tables, with the reason (partial deliveries, a Story described by its root cause).
 3. **Everything you changed on staging**, where the backup is, and whether the staging app is still running.
 4. Traps worth adding to the project's guide.

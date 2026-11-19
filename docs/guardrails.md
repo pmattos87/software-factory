@@ -72,6 +72,7 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `release.assets.files` | Glob patterns of the files those commands produce, relative to the repo root. `<version>` in a pattern is replaced by the Release's version. |
 | `release.assets.beta`, `release.assets.production` | Client projects: two sets, each `{ build, files }` as above, in place of the single one. A beta's pre-release carries only the beta set (the test installer). The production set is built only for the final Release, from the merge commit, after the client approved and Pedro merged. `check-release.mjs --client` requires both, and every `files` pattern must carry `<version>`, so it never matches an installer left from another version. An Internal project keeps the single `release.assets`, which is its production set. `release-assets.mjs <beta or production> <version>`, once the set's build ran, lists its files. |
 | `release.changelog` | Optional: the project's changelog file (e.g. `docs/CHANGELOG.md`, Keep a Changelog format). When set, the Docs agent writes each Story's entry to `docs/changes/<KEY>.md` instead of the changelog, and promote rebuilds the version's section from exactly the picked Stories' files at the cut and after every sync (`release-version.mjs changelog`). The files stay in the repo; entries from before the setting move once into `docs/changes/unreleased-v<version>.md`. `check-release.mjs` checks the file exists. |
+| `release.documents.folder` | Client projects, optional: the project's folder under the Releases root ([User-level config](#user-level-config)), a plain name like `Hammer loc - CRM`. Default: the repo folder's name (the main checkout's, also from a worktree). |
 | `release.notes` | Client projects only, for `release-notes` and `test-guide`: `client` (who reads the deck), `language`, `staging` (where screenshots are taken and the test guide is dry-run: a URL, or the command that launches the staging app), and an optional `guide`, a Markdown file in the repo with the project's own lore: the theme both documents share (palette in light and dark, woff2 font files, logo), the cover wording, the UI labels in the project's language, the recurring cast of people and companies the scenarios use, the staging setup, and the screenshot traps. |
 
 A Client project's assets, as Hammer Loc sets them:
@@ -89,7 +90,19 @@ A Client project's assets, as Hammer Loc sets them:
 }
 ```
 
-`node <plugin>/scripts/check-release.mjs [--client]`, run from the repo root, checks the `release` key: every version file exists and carries the same version, assets have a build, and a Client project has both asset sets, with `<version>` in every pattern, and its notes settings.
+`node <plugin>/scripts/check-release.mjs [--client]`, run from the repo root, checks the `release` key: every version file exists and carries the same version, assets have a build, and a Client project has both asset sets, with `<version>` in every pattern, its notes settings, and a Releases root that exists.
+
+### User-level config
+
+`~/.claude/factory.user.json` holds what belongs to the machine, not to a project, and is never committed to a repo. `FACTORY_USER_CONFIG` names another file in its place (the tests use it).
+
+```json
+{ "releasesRoot": "D:\\Projetos\\Releases" }
+```
+
+| Key | Meaning |
+|---|---|
+| `releasesRoot` | The folder that holds every Client project's release documents, outside every repo: `<releasesRoot>\<project>\Release X.Y.Z\` for the final Release's notes, and `beta.<n>\` inside it for each beta's deck, test guide, notes and their sources. `check-release.mjs --client` fails when it isn't set, doesn't exist or is inside the repo. `node <plugin>/scripts/release-folder.mjs <version> [beta number] [--create]` prints (and creates) a Release's or a beta's folder. Nothing under it is committed. |
 
 ## Actions
 

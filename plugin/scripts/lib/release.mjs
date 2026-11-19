@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkDocuments } from './releases.mjs';
 
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 const NOTES_FIELDS = ['client', 'language', 'staging'];
@@ -34,6 +35,7 @@ export function releaseSettings(raw = {}) {
     versionFiles: raw.versionFiles ?? [],
     assets: assetSets(raw.assets),
     notes: raw.notes ?? null,
+    documents: raw.documents ?? null,
     changelog: raw.changelog ?? null,
   };
 }
@@ -102,6 +104,7 @@ export function checkRelease(root, settings, { client = false } = {}) {
       if (!settings.notes?.[field]) problems.push(`release.notes.${field} is required on a Client project`);
     }
   }
+  problems.push(...checkDocuments(settings));
   const guide = settings.notes?.guide;
   if (guide && !fs.existsSync(path.join(root, guide))) problems.push(`release.notes.guide ${guide} doesn't exist`);
   if (settings.changelog && !fs.existsSync(path.join(root, settings.changelog))) problems.push(`release.changelog ${settings.changelog} doesn't exist`);

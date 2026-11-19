@@ -80,6 +80,7 @@ On an Internal project:
 On a Client project, **User testing** comes between 2 and 3:
 
 - After the cut, `promote` tags `vX.Y.Z-beta.1` on the Release branch, builds the beta asset set (the test installer, never the production one), launches that build on staging, and runs `factory:release-notes` (the deck, as a PDF) and `factory:test-guide` (the test guide, as one HTML file). Pedro reviews both; only then is the beta published as a GitHub pre-release with the beta set's files and both documents, and the Release moves to `user_testing`: its Stories go to the primary client contact. Beta 1's documents cover the whole Release; each later beta's cover only what changed since the previous one.
+- **The documents live in the Releases folder**, outside every repo: `<Releases root>\<project>\Release X.Y.Z\beta.<n>\` holds the beta's published files (the deck's PDF, the test guide's HTML and the release notes, `notes.md`) and beside them `deck-source\` and `guide-source\`, where both skills build. A later beta starts from a copy of the previous beta's sources, and the final Release's notes go in `Release X.Y.Z\` itself. Nothing the client gets lives only in the scratchpad (a staging data backup may), and nothing under the Releases root is committed to a repo. [release-folder.mjs](../plugin/scripts/release-folder.mjs) prints the folder.
 - **A bug the client finds** becomes a bug Subtask, which sends the Story back to `building`. It's fixed on the Story's Feature branch, integrated and passed by Pedro (`tested`) as any fix. Then `promote` merges it into the Release branch, tags the next beta and returns the Story to `user_testing`. Once a beta exists, a removed pick is reverted, never re-cut.
 - When Pedro says the client approved the last beta, `promote` opens the PR into production, and goes on from step 3. The approved beta is what ships: the branch isn't synced once that PR is open.
 - **The production installer is built only after the merge**, from the merge commit, and only when `git diff v<version>-beta.<last> <merge commit>` is empty: anything else is code the client never tested, and `promote` stops for Pedro. The beta ran on the test database, so a Release with a migration still needs its rehearsal on a copy of the production database before the production installer ships.
@@ -113,7 +114,8 @@ A Consumer project adopts the Workflow skills with:
 3. Its board switched to the Factory ladder. Open items are mapped first, because `flowboard-cli project set <KEY> --ladder factory` refuses while any open item isn't a top-level `story` in a Story status, or a `task`/`bug` under a story in a Subtask status.
 4. Its `CLAUDE.md` declares the board and points at `story-status`, `integrate` and `promote`.
 5. A `release` key in `.claude/factory.json` once it ships Releases: `check-release.mjs` (with `--client` on a Client project) checks it.
-6. Codex reachable on the machine (the ChatGPT VS Code extension, `codex` on PATH, or `FACTORY_CODEX`), signed in, and Flowboard installed, since the PR gate reads each Story's Review through `flowboard-cli`.
+6. On a Client project, the Releases root set on the machine, in `~/.claude/factory.user.json` ([Guardrails](guardrails.md#user-level-config)).
+7. Codex reachable on the machine (the ChatGPT VS Code extension, `codex` on PATH, or `FACTORY_CODEX`), signed in, and Flowboard installed, since the PR gate reads each Story's Review through `flowboard-cli`.
 
 Outside Consumer projects, the user-level originals keep working unchanged.
 
