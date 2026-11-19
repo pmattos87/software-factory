@@ -326,3 +326,47 @@ test('PR gate: a Gate that fails forgets its earlier pass', () => {
   assert.equal(create().status, 0);
   assert.equal(runs(), before + 1, 'back on the passing tree, the Gate runs again');
 });
+
+test('run-gates --scoped: skips a Gate with no change under its paths, runs the related form on the changed files, records evidence only for full runs', () => {
+  const tools = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-tools-'));
+  const trace = path.join(tools, 'runs.txt');
+  // Each Gate appends one line: its label and the arguments it got.
+  const recorder = path.join(tools, 'gate.cjs').replace(/\\/g, '/');
+  fs.writeFileSync(recorder, `require('fs').appendFileSync(process.env.GATE_TRACE, process.argv.slice(2).join(' ') + '\\n');`);
+  const g = (label) => `node "${recorder}" ${label}`;
+  const gates = [g('tsc'), { run: g('cargo'), paths: ['src-tauri/'] }, { run: g('vitest'), related: `${g('related')} {files}` }];
+  const r = repo({ boardKey: 'FB', gates });
+  const env = { ...process.env, GATE_TRACE: trace };
+  const log = path.join(r, '.git/factory/logs/FB-12/run.log');
+  const run = (...args) => spawnSync('node', [path.join(SCRIPTS, 'run-gates.mjs'), ...args, log], { cwd: r, encoding: 'utf8', env });
+  const runs = () => fs.readFileSync(trace, 'utf8').trim().split('\n');
+  const evidence = () => Object.keys(JSON.parse(fs.readFileSync(path.join(r, '.git/factory/gates/evidence.json'), 'utf8')));
+  const reset = () => fs.rmSync(trace, { force: true });
+
+  fs.mkdirSync(path.join(r, 'src'));
+  fs.writeFileSync(path.join(r, 'src/a.ts'), 'a');
+  let out = run('--scoped');
+  assert.equal(out.status, 0, out.stdout);
+  assert.deepEqual(runs(), ['tsc', 'related src/a.ts']);
+  assert.match(out.stdout, /skip node .* cargo \(no changes under src-tauri\/\)/);
+  assert.match(fs.readFileSync(log, 'utf8'), /skip node .* cargo \(no changes under src-tauri\/\)/);
+  assert.match(out.stdout, /\(exit 0, related\)/);
+  assert.deepEqual(evidence(), [g('tsc')], 'only the full run records evidence');
+
+  // A change under src-tauri/ runs cargo in full.
+  reset();
+  fs.mkdirSync(path.join(r, 'src-tauri'));
+  fs.writeFileSync(path.join(r, 'src-tauri/main.rs'), 'fn main() {}');
+  out = run('--scoped');
+  assert.equal(out.status, 0, out.stdout);
+  assert.deepEqual(runs(), ['tsc', 'cargo', 'related src-tauri/main.rs src/a.ts']);
+  assert.deepEqual(evidence().sort(), [g('tsc'), g('cargo')].sort());
+
+  // Without --scoped, every Gate runs its full command, as before.
+  reset();
+  out = run();
+  assert.equal(out.status, 0, out.stdout);
+  assert.deepEqual(runs(), ['tsc', 'cargo', 'vitest']);
+  assert.doesNotMatch(out.stdout, /skip|related/);
+  assert.equal(evidence().length, 3);
+});
