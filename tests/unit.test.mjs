@@ -9,6 +9,8 @@ import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scri
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides, ROLE_AGENTS } from '../plugin/scripts/lib/specialists.mjs';
 import { releaseSettings, readVersion, checkRelease, assetSets, assetPatterns } from '../plugin/scripts/lib/release.mjs';
+import { releaseFolder, projectFolder, userConfigPath, loadUserConfig, checkReleasesRoot, checkDocuments } from '../plugin/scripts/lib/releases.mjs';
+import { checkEnvironments, expandPath } from '../plugin/scripts/lib/environments.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
@@ -139,7 +141,7 @@ test('release settings are checked against the project files', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-release-'));
   fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.5.1"}');
   fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.5.1"\n');
-  const check = (raw, opts) => checkRelease(root, releaseSettings(raw), opts);
+  const check = (raw, opts) => checkRelease(root, releaseSettings(raw), opts && { environments: CLIENT_ENVIRONMENTS, env: TEST_ENV, ...opts });
 
   assert.deepEqual(check({ versionFiles: ['package.json', 'Cargo.toml'], assets: { build: ['npm run dist'], files: ['dist/*.zip'] } }), []);
   assert.deepEqual(check({}), ['release.versionFiles is empty: name the files that carry the version']);
@@ -149,15 +151,24 @@ test('release settings are checked against the project files', () => {
   fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.4.0"\n');
   assert.match(check({ versionFiles: ['package.json', 'Cargo.toml'] })[0], /disagree: package.json 1.5.1, Cargo.toml 1.4.0/);
 
-  assert.equal(check({ versionFiles: ['package.json'], assets: CLIENT_ASSETS }, { client: true }).length, 3);
-  const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
+  assert.deepEqual(check({ versionFiles: ['package.json'], assets: CLIENT_ASSETS }, { client: true }), ['release.notes.client is required on a Client project', 'release.notes.language is required on a Client project']);
+  const notes = { client: 'Eduardo & Luli', language: 'pt-BR' };
   const client = { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes };
   assert.deepEqual(check(client, { client: true }), []);
+  // staging moved to environments.release.launch.
+  assert.deepEqual(check({ ...client, notes: { ...notes, staging: 'npm run dev:staging' } }, { client: true }), ['release.notes.staging is replaced by environments.release.launch: move it there (screenshots and dry runs run on the release environment)']);
+  assert.equal(check(client, { client: true, environments: {} }).length, 2);
   assert.deepEqual(check({ ...client, notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), ["release.notes.guide docs/release-notes.md doesn't exist"]);
   fs.mkdirSync(path.join(root, 'docs'));
   fs.writeFileSync(path.join(root, 'docs/release-notes.md'), '# Deck style\n');
   assert.deepEqual(check({ ...client, notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), []);
 });
+
+const TEST_ENV = { APPDATA: path.join(os.tmpdir(), 'AppData', 'Roaming') };
+const CLIENT_ENVIRONMENTS = {
+  integration: { launch: 'npm run dev:integration', data: '%APPDATA%/App/integration' },
+  release: { build: ['npm run build:staging'], launch: 'App - Testes.exe', data: '%APPDATA%/App/testes' },
+};
 
 const CLIENT_ASSETS = {
   beta: { build: ['npm ci', 'npm run build:staging'], files: ['nsis/App - Testes_<version>_*-setup.exe'] },
@@ -167,8 +178,8 @@ const CLIENT_ASSETS = {
 test('a Client project needs a beta and a production asset set, each with versioned files', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-assets-'));
   fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.5.1"}');
-  const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
-  const check = (assets, client = true) => checkRelease(root, releaseSettings({ versionFiles: ['package.json'], assets, notes }), { client });
+  const notes = { client: 'Eduardo & Luli', language: 'pt-BR' };
+  const check = (assets, client = true) => checkRelease(root, releaseSettings({ versionFiles: ['package.json'], assets, notes }), { client, environments: CLIENT_ENVIRONMENTS, env: TEST_ENV });
   const { beta, production } = CLIENT_ASSETS;
   const required = (name) => `release.assets.${name} is required on a Client project: betas ship the beta set, the final Release the production set`;
 
@@ -186,6 +197,64 @@ test('a Client project needs a beta and a production asset set, each with versio
   ]);
   // An Internal project keeps the old single set, unversioned, as before.
   assert.deepEqual(check({ build: ['npx tauri build'], files: ['nsis/*-setup.exe'] }, false), []);
+});
+
+test('a Client project keeps integration testing and user testing on separate data folders', () => {
+  const root = path.resolve(os.tmpdir(), 'repo');
+  const env = { APPDATA: 'C:\\Users\\p\\AppData\\Roaming', LocalAppData: 'C:\\Users\\p\\AppData\\Local', USERPROFILE: 'C:\\Users\\p' };
+  const check = (environments) => checkEnvironments(environments, root, env);
+  const integration = { launch: 'npm run dev:integration', data: '%APPDATA%\\HammerLoc\\integracao' };
+  const release = { build: ['npm run build:staging'], launch: 'Hammer Loc - Testes.exe', data: '%APPDATA%\\HammerLoc\\testes' };
+
+  assert.deepEqual(check({ integration, release }), []);
+  assert.deepEqual(check({ release }), ["environments.integration is required on a Client project: integration testing and the client's betas never share a data folder"]);
+  assert.deepEqual(check({}).length, 2);
+  assert.deepEqual(check({ integration: { launch: 'x' }, release }), ['environments.integration.data is required: the folder that holds its database']);
+  assert.deepEqual(check({ integration: { data: 'a' }, release }), ['environments.integration.launch is required: the command or URL that starts it']);
+  assert.deepEqual(check({ integration: { ...integration, build: 'npm run build' }, release }), ['environments.integration.build must be a list of commands']);
+
+  // The same folder, however it is spelled: case, separators, a trailing slash, an env var.
+  const same = 'environments.integration.data and environments.release.data are the same folder';
+  assert.match(check({ integration: { ...integration, data: 'C:/Users/P/appdata/roaming/HammerLoc/Testes/' }, release })[0], new RegExp(same));
+  assert.match(check({ integration: { ...integration, data: '%appdata%\\HammerLoc\\testes' }, release })[0], new RegExp(same));
+  assert.match(check({ integration: { ...integration, data: '~\\AppData\\Roaming\\HammerLoc\\testes' }, release })[0], new RegExp(same));
+  // One inside the other.
+  assert.match(check({ integration: { ...integration, data: '%APPDATA%\\HammerLoc' }, release })[0], /are nested: one is inside the other/);
+  assert.match(check({ integration, release: { ...release, data: '%APPDATA%\\HammerLoc\\integracao\\beta' } })[0], /are nested/);
+  // A prefix that isn't a parent folder is apart.
+  assert.deepEqual(check({ integration: { ...integration, data: '%APPDATA%\\HammerLoc\\testes-integracao' }, release }), []);
+  // Relative folders resolve against the repo root.
+  assert.match(check({ integration: { ...integration, data: 'data' }, release: { ...release, data: path.join(root, 'data') } })[0], new RegExp(same));
+  assert.deepEqual(check({ integration: { ...integration, data: '%NOPE%\\x' }, release }), ["environments.integration.data %NOPE%\\x uses %NOPE%, which isn't set on this machine"]);
+
+  assert.deepEqual(expandPath('%LOCALAPPDATA%\\x', env), { path: 'C:\\Users\\p\\AppData\\Local\\x' });
+  assert.deepEqual(expandPath('~/x', env), { path: 'C:\\Users\\p/x' });
+  assert.deepEqual(expandPath('a~b', env), { path: 'a~b' });
+});
+
+test('check-release --client refuses environments that share a data folder', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-environments-'));
+  fs.mkdirSync(path.join(base, 'Releases'));
+  fs.writeFileSync(path.join(base, 'user.json'), JSON.stringify({ releasesRoot: path.join(base, 'Releases') }));
+  const repo = path.join(base, 'repo');
+  fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.6.0"}');
+  const write = (environments) => fs.writeFileSync(path.join(repo, '.claude/factory.json'), JSON.stringify({
+    boardKey: 'HL',
+    environments,
+    release: { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes: { client: 'Eduardo & Luli', language: 'pt-BR' } },
+  }));
+  const run = () => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/check-release.mjs'), '--client'], {
+    cwd: repo, encoding: 'utf8', env: { ...process.env, ...TEST_ENV, FACTORY_USER_CONFIG: path.join(base, 'user.json') },
+  });
+
+  write(CLIENT_ENVIRONMENTS);
+  assert.equal(run().status, 0);
+  write({ ...CLIENT_ENVIRONMENTS, integration: { ...CLIENT_ENVIRONMENTS.integration, data: CLIENT_ENVIRONMENTS.release.data } });
+  const r = run();
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^FAIL environments.integration.data and environments.release.data are the same folder/);
+  fs.rmSync(base, { recursive: true, force: true });
 });
 
 test('asset sets read the old single shape as production and fill in the version', () => {
@@ -226,6 +295,80 @@ test('release-assets lists only the set and version asked for', () => {
   assert.equal(r.status, 1);
   assert.equal(r.stdout, 'FAIL release.assets.beta is not set\n');
   assert.equal(run('nightly', '1.6.0').status, 2);
+});
+
+test('release documents go under the Releases root, by project, Release and beta', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-releases-'));
+  assert.equal(releaseFolder('D:\\Releases', 'Hammer loc - CRM', '1.6.0', 2), path.join('D:\\Releases', 'Hammer loc - CRM', 'Release 1.6.0', 'beta.2'));
+  assert.equal(releaseFolder('D:\\Releases', 'Hammer loc - CRM', '1.6.0'), path.join('D:\\Releases', 'Hammer loc - CRM', 'Release 1.6.0'));
+  assert.equal(userConfigPath({ FACTORY_USER_CONFIG: 'x.json' }), 'x.json');
+  assert.equal(userConfigPath({}), path.join(os.homedir(), '.claude', 'factory.user.json'));
+  assert.deepEqual(loadUserConfig(path.join(base, 'none.json')), {});
+
+  // The project folder is the repo folder's name, the main checkout's even from a worktree.
+  const repo = path.join(base, 'My Repo');
+  fs.mkdirSync(repo);
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
+  git(repo, 'worktree', 'add', '-q', path.join(base, 'wt'), '-b', 'other');
+  assert.equal(projectFolder(repo, {}), 'My Repo');
+  assert.equal(projectFolder(path.join(base, 'wt'), {}), 'My Repo');
+  assert.equal(projectFolder(path.join(base, 'wt'), { documents: { folder: 'Hammer loc - CRM' } }), 'Hammer loc - CRM');
+  assert.deepEqual(checkDocuments({ documents: { folder: 'Hammer loc - CRM' } }), []);
+  assert.deepEqual(checkDocuments({ documents: { folder: 'a\\b' } }), ['release.documents.folder "a\\\\b" must be a plain folder name, with no path']);
+
+  const releases = path.join(base, 'Releases');
+  assert.deepEqual(checkReleasesRoot({}, repo, 'u.json'), ["releasesRoot is not set in u.json: name the folder that holds every project's Release documents"]);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: 'Releases' }, repo, 'u.json'), ['releasesRoot Releases in u.json must be an absolute path']);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: releases }, repo, 'u.json'), [`releasesRoot ${releases} doesn't exist`]);
+  fs.mkdirSync(releases);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: releases }, repo, 'u.json'), []);
+  assert.deepEqual(checkReleasesRoot({ releasesRoot: path.join(repo, 'out') }, repo, 'u.json').length, 1);
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('check-release --client flags a missing Releases root; release-folder prints and creates the folder', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-release-folder-'));
+  const repo = path.join(base, 'Hammer loc - CRM');
+  fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.6.0"}');
+  fs.writeFileSync(path.join(repo, '.claude/factory.json'), JSON.stringify({
+    boardKey: 'HL',
+    environments: CLIENT_ENVIRONMENTS,
+    release: { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes: { client: 'Eduardo & Luli', language: 'pt-BR' } },
+  }));
+  const userFile = path.join(base, 'factory.user.json');
+  const env = { ...process.env, ...TEST_ENV, FACTORY_USER_CONFIG: userFile };
+  const script = (name, ...args) => spawnSync('node', [path.resolve(import.meta.dirname, `../plugin/scripts/${name}`), ...args], { cwd: repo, encoding: 'utf8', env });
+
+  let r = script('check-release.mjs', '--client');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FAIL releasesRoot is not set in .*factory\.user\.json/);
+  assert.equal(script('check-release.mjs').status, 0, 'an Internal check needs no Releases root');
+  assert.equal(script('release-folder.mjs', '1.6.0', '1').status, 1);
+
+  const releases = path.join(base, 'Releases');
+  fs.writeFileSync(userFile, JSON.stringify({ releasesRoot: releases }));
+  r = script('check-release.mjs', '--client');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, `FAIL releasesRoot ${releases} doesn't exist\n`);
+
+  fs.mkdirSync(releases);
+  assert.equal(script('check-release.mjs', '--client').status, 0);
+  const beta = path.join(releases, 'Hammer loc - CRM', 'Release 1.6.0', 'beta.2');
+  r = script('release-folder.mjs', '1.6.0', '2');
+  assert.equal(r.stdout, beta + path.sep + '\n');
+  assert.equal(fs.existsSync(beta), false, 'prints without --create');
+  r = script('release-folder.mjs', '1.6.0', '2', '--create');
+  assert.equal(r.status, 0);
+  assert.equal(fs.statSync(beta).isDirectory(), true);
+  assert.equal(script('release-folder.mjs', '1.6.0').stdout, path.join(releases, 'Hammer loc - CRM', 'Release 1.6.0') + path.sep + '\n');
+  assert.equal(script('release-folder.mjs', 'v1.6.0').status, 2);
+  assert.equal(script('release-folder.mjs', '1.6.0', '0').status, 2);
+
+  fs.writeFileSync(userFile, '{');
+  assert.match(script('check-release.mjs', '--client').stdout, /FAIL .*factory\.user\.json is not valid JSON/);
+  fs.rmSync(base, { recursive: true, force: true });
 });
 
 test('the next version follows the commit types', () => {

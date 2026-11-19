@@ -156,7 +156,7 @@ Run the `factory:integrate` skill on the Story. It pushes the branch, opens the 
 
 ## 10. Report
 
-End with the Story key and where it stands, then one line per Subtask: key, builder, rounds, verdict, then one line per Review round: verdict and comment link, and Codex's suggestions for Pedro to file or drop. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
+End with the Story key and where it stands (in `integrated_tests`, Pedro's test is on the integration branch, with `environments.integration` on a Client project, as `factory:integrate` says), then one line per Subtask: key, builder, rounds, verdict, then one line per Review round: verdict and comment link, and Codex's suggestions for Pedro to file or drop. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
 
 ## Guardrails
 
@@ -164,4 +164,5 @@ End with the Story key and where it stands, then one line per Subtask: key, buil
 - Never weaken a Gate, skip Verify or Review, or pass a Subtask QA failed. The one exception is a Simplify pass that `check-noop.mjs` reports as no change (step 5.3): it leaves the verified commit as it was, so there is nothing new to Verify.
 - Never force-push, rewrite a pushed branch, or commit on the integration or production branch (the hooks block it anyway).
 - A refused board call stops the Run step it belongs to: report it, never work around it (see `factory:story-status`).
+- On a Client project, anything launched to see a change by eye (by an agent or for Pedro) uses `environments.integration` and its data folder, never `environments.release`: that one is the client's betas'.
 - Windows: keep any scripted output ASCII-only.

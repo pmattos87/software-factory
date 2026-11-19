@@ -22,7 +22,7 @@ and `gh-bot` for `GH_TOKEN="$(gh auth token -u pmattos-pr-review-agent)" gh`.
 ## 1. Check the project and the Release
 
 1. `project_show`: note the project's kind (`internal` or `client`).
-2. `node check-release.mjs` (with `--client` on a Client project). Any `FAIL` stops here: the settings are needed to bump the version and build the assets.
+2. `node check-release.mjs` (with `--client` on a Client project). Any `FAIL` stops here: the settings are needed to bump the version, build the assets and, on a Client project, write the documents to the Releases folder.
 3. The working tree must be clean (`git status --porcelain` empty); never stash or discard Pedro's work. Note the current branch, to switch back to at the end. `git fetch origin --prune --tags`.
 4. **Find the Release.** The version the user named, or `release_list` and take the one in `planned` or `user_testing`. Several, or none: ask which one, or send Pedro to the Releases screen to pick one.
 5. `release_show` it, then `story_show` each picked Story. Every pick must be `tested` and record a Feature branch that exists on origin. An empty Release, or a pick that doesn't qualify: stop and say which. On a Release in User testing a pick may also be `user_testing`, or back in `building` → `integrated_tests` → `tested` while a bug found by the client is fixed (section 7). A depends-on warning from the pick (a dependency that is neither `done` nor in this Release) is reported, and Pedro decides whether to go on.
@@ -78,7 +78,7 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
 
 ## 5. Open the PR into production
 
-1. Write the notes (below) to a file.
+1. Write the notes (below) to a file. On a Client project it is `notes.md` in the Release's folder, `node release-folder.mjs <version> --create` (`<Releases root>\<project>\Release <version>\`), which step 6.6 publishes too.
 2. From the Release branch (`git switch release/v<version>`, in line with origin), open the PR as the machine account:
 
    ```
@@ -105,7 +105,7 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
    ```
 
 5. **Build the production assets** from the tag: `git switch --detach v<version>`, run each `release.assets.production.build` command (`release.assets.build` on a project with the old single set), and list the files with `node release-assets.mjs production <version>`. The build commands install their own dependencies, so the build matches the tag, not whatever the checkout had. `release-assets.mjs` fills `<version>` into each files pattern and prints one file per line; a `FAIL` (a pattern that matches nothing) stops here, as does a failed build, before anything is published. On a Client project this is the first time the production installer is built: no beta ever carries it.
-6. **Publish the GitHub Release** with the notes from section 5 and the files `release-assets.mjs` listed:
+6. **Publish the GitHub Release** with the notes from section 5 (on a Client project, `notes.md` in `Release <version>\`) and the files `release-assets.mjs` listed:
 
    ```
    gh-bot release create v<version> <asset files> --verify-tag --title "v<version>" --notes-file <notes file>
@@ -128,19 +128,21 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
 
 A Client Release goes through User testing before step 5. The client tests a beta built from the Release branch, and only after the client approves does it go to production. Each beta is a tag `v<version>-beta.<n>` on the Release branch, with a GitHub pre-release carrying its assets and two documents for the client: the release-notes deck as a PDF and the test guide as one HTML file. The client never sees a pre-release with either missing.
 
+**The documents live in the Releases folder**, never only in the scratchpad: `node release-folder.mjs <version> <n> --create` prints `<Releases root>\<project>\Release <version>\beta.<n>\`. It holds the three published files (the deck's PDF, the test guide's HTML and the release notes `notes.md`), and beside them `deck-source\` and `guide-source\`, the sources `release-notes` and `test-guide` build in. The Releases root is machine-level (`releasesRoot` in `~/.claude/factory.user.json`), the project's folder is `release.documents.folder` or the repo folder's name, and nothing under the root is committed to a repo.
+
 **Tagging a beta** (used by 7.1 and 7.2), with `<n>` one more than the highest `v<version>-beta.*` tag (1 for the first):
 
 1. On the Release branch, in line with origin: `git-bot tag -a v<version>-beta.<n> -m "v<version>-beta.<n>"`, then `git push origin v<version>-beta.<n>`.
 2. **Build the beta set** from that tag: `git switch --detach v<version>-beta.<n>`, run each `release.assets.beta.build` command, then `node release-assets.mjs beta <version>` lists its files (a `FAIL` stops here, as in step 6.5). Only the beta set is built and attached: the production installer is never on a pre-release, and is built only in 6. Finish, after the client approved and Pedro merged.
-3. **Launch that build on staging** (`release.notes.staging`): the documents' screenshots and the guide's dry run must show what the client will install.
-4. **Build both documents** for this beta: `factory:release-notes`, then `factory:test-guide`. Beta 1 covers the whole Release; beta 2 and later cover only what changed since the previous beta (each skill decides this itself). Their files, ASCII with no spaces since GitHub renames spaces in asset names:
+3. **Use the release environment** (`environments.release`) for that build: the documents' screenshots and the guide's dry run run there, with the beta's build, so they show what the client will install. Never `environments.integration`, whose database the integration branch's migrations may have moved ahead of the beta. Both skills back up the release environment's data folder first and restore it after.
+4. **Build both documents** for this beta: `factory:release-notes`, then `factory:test-guide`. Both write into the beta's folder. Beta 1 covers the whole Release; beta 2 and later cover only what changed since the previous beta (each skill decides this itself), and start from a copy of the previous beta's sources. Their files, ASCII with no spaces since GitHub renames spaces in asset names:
    - `<project-key>-release-notes-v<version>-beta.<n>.pdf`
    - `<project-key>-test-guide-v<version>-beta.<n>.html`
-5. **Stop for Pedro's review of both.** Show the deck's contact sheet and the guide's coverage table, and wait. His changes go back to the skill that made the document, and he reviews again. Nothing is published until he approves both.
-6. Publish the pre-release with every file at once, the beta set's files and both documents, with the notes from step 5 under a `## v<version>-beta.<n>` heading:
+5. **Stop for Pedro's review of both.** Show the deck's contact sheet and the guide's coverage table, give the beta's folder, and wait. His changes go back to the skill that made the document, and he reviews again. Nothing is published until he approves both.
+6. Write the notes from section 5, under a `## v<version>-beta.<n>` heading, to `notes.md` in the beta's folder. Then publish the pre-release with every file at once, the beta set's files and both documents, each document read from the beta's folder (`<folder>` below):
 
    ```
-   gh-bot release create v<version>-beta.<n> <beta set files> <project-key>-release-notes-v<version>-beta.<n>.pdf <project-key>-test-guide-v<version>-beta.<n>.html --verify-tag --prerelease --title "v<version>-beta.<n>" --notes-file <notes file>
+   gh-bot release create v<version>-beta.<n> <beta set files> "<folder>/<project-key>-release-notes-v<version>-beta.<n>.pdf" "<folder>/<project-key>-test-guide-v<version>-beta.<n>.html" --verify-tag --prerelease --title "v<version>-beta.<n>" --notes-file "<folder>/notes.md"
    ```
 
    Then check the pre-release lists all of them and nothing else (`gh release view v<version>-beta.<n> --json assets`).
@@ -153,7 +155,7 @@ After 3. Cut: tag beta 1, then `release_move` the Release to `user_testing`. Its
 
 ### 7.2 The next beta, after a fix or a changed pick
 
-The client reports a bug: Pedro files it as a bug Subtask on the Story (`factory:story-status`), which sends the Story back to `building`. The fix is built on the Story's own Feature branch (`factory:run` picks it up), integrated into the integration branch, and tested by Pedro there until the Story is `tested` again. Then this skill runs again.
+The client reports a bug: Pedro files it as a bug Subtask on the Story (`factory:story-status`), which sends the Story back to `building`. The fix is built on the Story's own Feature branch (`factory:run` picks it up), integrated into the integration branch, and tested by Pedro there (with `environments.integration`, never the release environment) until the Story is `tested` again. Then this skill runs again.
 
 1. Every pick must be `user_testing` or `tested`. A pick still in `building` or `integrated_tests` holds the next beta: say which, and stop.
 2. Sync (section 4) merges each pick's Feature branch again, which brings in the fix. A pick added during User testing is merged the same way, and a removed pick is reverted (a beta exists, so the branch is never re-cut).
