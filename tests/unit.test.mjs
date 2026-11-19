@@ -14,6 +14,8 @@ import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } f
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
 import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
+import { loadConfig, normalizeGates } from '../plugin/scripts/lib/config.mjs';
+import { scopeGate, quote, under, changedFiles } from '../plugin/scripts/lib/scope.mjs';
 import { treeKey, matchingEvidence, readEvidence, toolchain, fileModes, untrackedMode } from '../plugin/scripts/lib/gate-evidence.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
 import { spawnSync } from 'node:child_process';
@@ -812,4 +814,88 @@ test('the deck cover takes the client logo as a data URL, and drops cleanly with
   const without = deck.replace(slot, '');
   assert.doesNotMatch(without, /client-logo"|\{\{client\./);
   assert.ok(!unfilledSlots(without).includes('{{client.logo_data}}') && !unfilledSlots(without).includes('{{Client}}'));
+});
+
+test('gates: a string stays a full command; an object keeps its scope apart from the command', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-gates-'));
+  fs.mkdirSync(path.join(dir, '.claude'));
+  const gates = [
+    'npx tsc --noEmit',
+    { run: 'npx vitest run', related: 'npx vitest related --run {files}' },
+    { run: 'cargo test --manifest-path src-tauri/Cargo.toml', paths: ['./src-tauri/', 'crates\\core'] },
+  ];
+  fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates }));
+  const config = loadConfig(dir);
+  assert.deepEqual(config.gates, ['npx tsc --noEmit', 'npx vitest run', 'cargo test --manifest-path src-tauri/Cargo.toml'], 'the PR gate and CI see full commands only');
+  assert.deepEqual(config.gateScopes, [
+    { run: 'npx tsc --noEmit', paths: null, related: null },
+    { run: 'npx vitest run', paths: null, related: 'npx vitest related --run {files}' },
+    { run: 'cargo test --manifest-path src-tauri/Cargo.toml', paths: ['src-tauri', 'crates/core'], related: null },
+  ]);
+  assert.deepEqual(normalizeGates(undefined), []);
+});
+
+test('gates: a malformed entry is refused with its index and what is wrong', () => {
+  const bad = (gates, re) => assert.throws(() => normalizeGates(gates), re);
+  bad('npm test', /gates must be a list/);
+  bad([''], /gates\[0\] is an empty command/);
+  bad(['ok', 42], /gates\[1\] must be a command string or an object/);
+  bad([['npm test']], /gates\[0\] must be a command string/);
+  bad([{ paths: ['src/'] }], /gates\[0\] needs "run"/);
+  bad([{ run: 'x', path: ['src/'] }], /unknown keys: path/);
+  bad([{ run: 'x', paths: 'src/' }], /"paths" must be a non-empty list/);
+  bad([{ run: 'x', paths: [] }], /"paths" must be a non-empty list/);
+  bad([{ run: 'x', paths: ['../other'] }], /paths inside the repo/);
+  bad([{ run: 'x', paths: ['./'] }], /paths inside the repo/);
+  bad([{ run: 'x', related: 'npx vitest related' }], /"related" must be a command containing \{files\}/);
+});
+
+test('scoped Gates: skip outside paths, related on the changed files, full otherwise', () => {
+  const tsc = { run: 'tsc', paths: null, related: null };
+  const cargo = { run: 'cargo test', paths: ['src-tauri'], related: null };
+  const vitest = { run: 'vitest run', paths: null, related: 'vitest related --run {files}' };
+  const both = { run: 'vitest run', paths: ['src'], related: 'vitest related {files} --run' };
+  const ts = ['src/a.ts', 'src/b c.ts'];
+  const posix = { platform: 'linux' };
+
+  assert.deepEqual(scopeGate(tsc, ts, posix), { action: 'full', cmd: 'tsc' });
+  assert.deepEqual(scopeGate(cargo, ts, posix), { action: 'skip', reason: 'no changes under src-tauri/' });
+  assert.deepEqual(scopeGate(cargo, ['src-tauri/src/main.rs'], posix), { action: 'full', cmd: 'cargo test' });
+  assert.equal(scopeGate(cargo, ['src-tauri-old/x.rs'], posix).action, 'skip', 'a sibling with the same prefix is not under it');
+  assert.deepEqual(scopeGate(vitest, ts, posix), { action: 'related', cmd: "vitest related --run 'src/a.ts' 'src/b c.ts'" });
+  assert.deepEqual(scopeGate(vitest, ts, { platform: 'win32' }), { action: 'related', cmd: 'vitest related --run "src/a.ts" "src/b c.ts"' });
+  assert.deepEqual(scopeGate(both, ['src/a.ts', 'README.md'], posix), { action: 'related', cmd: "vitest related 'src/a.ts' --run" }, 'only the files under its paths');
+  assert.equal(scopeGate(both, ['README.md'], posix).action, 'skip');
+
+  // Nothing safe to hand the related form: the full command runs.
+  assert.equal(scopeGate(vitest, ['src/gone.ts'], { ...posix, exists: () => false }).cmd, 'vitest run');
+  assert.equal(scopeGate(vitest, ['src/100%.ts'], { platform: 'win32' }).cmd, 'vitest run');
+  assert.equal(scopeGate(vitest, Array.from({ length: 500 }, (_, i) => `src/some/long/path/file-${i}.ts`), posix).cmd, 'vitest run');
+  assert.deepEqual(scopeGate(cargo, null, posix), { action: 'full', cmd: 'cargo test', reason: 'changed files unknown' });
+  assert.equal(scopeGate(tsc, [], posix).action, 'full', 'a Gate with no paths always runs');
+
+  assert.equal(quote("it's.ts", 'linux'), `'it'\\''s.ts'`);
+  assert.ok(under('src-tauri', ['src-tauri']) && !under('src-tauri2/x', ['src-tauri']));
+});
+
+test('changedFiles is the working tree against HEAD plus untracked, ignored files left out', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-changed-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  assert.equal(changedFiles(dir), null, 'no HEAD yet');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'out/\n');
+  fs.writeFileSync(path.join(dir, 'a.ts'), 'a');
+  fs.writeFileSync(path.join(dir, 'gone.ts'), 'g');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'chore: init');
+  assert.deepEqual(changedFiles(dir), []);
+  fs.writeFileSync(path.join(dir, 'a.ts'), 'a2');
+  fs.rmSync(path.join(dir, 'gone.ts'));
+  fs.writeFileSync(path.join(dir, 'staged.ts'), 's');
+  git(dir, 'add', 'staged.ts');
+  fs.writeFileSync(path.join(dir, 'new.ts'), 'n');
+  fs.mkdirSync(path.join(dir, 'out'));
+  fs.writeFileSync(path.join(dir, 'out/built.js'), 'b');
+  assert.deepEqual(changedFiles(dir), ['a.ts', 'gone.ts', 'new.ts', 'staged.ts']);
 });

@@ -1,6 +1,6 @@
 ---
 name: run
-description: Start or resume a Story's Run - the Orchestrator moves a ready Story to building, hands each Subtask to the agent its plan names, has QA Verify it (stopping the Run for Pedro after 2 failed rounds), commits it, has the code simplified once, runs Docs once, has Codex Review the whole Story, then integrates. Use when the user asks to run, build or start a Story with agents, or to resume or restart a stopped Run.
+description: Start or resume a Story's Run - the Orchestrator moves a ready Story to building, hands each Subtask to the agent its plan names, has QA Verify it with the scoped Gates (stopping the Run for Pedro after 2 failed rounds), commits it, has the code simplified once, runs the full Gates once, runs Docs once, has Codex Review the whole Story, then integrates. Use when the user asks to run, build or start a Story with agents, or to resume or restart a stopped Run.
 ---
 
 # Run: the Orchestrator
@@ -20,7 +20,7 @@ Board writes go through the `factory:story-status` skill's interface (the `flowb
 - **Run stopped**: show the stop reason from `story_trail`. Restart only when Pedro has said so in this request (he decided what to change), with `run_restart`; otherwise stop and tell him how: resolve the reason, then ask for the Run again with "restart".
 - Anywhere else, stop and say where it is.
 
-Then check the plan: every open Subtask has a `### <KEY> <title>` entry under `## Plan` with an `agent:` and at least one "done when" item. A Subtask with no entry is unplanned: stop and send Pedro to `factory:split`. The one exception is a `Simplify` Subtask whose entry is missing (the session ended between filing it and writing its entry): append the entry as in step 5 and go on.
+Then check the plan: every open Subtask has a `### <KEY> <title>` entry under `## Plan` with an `agent:` and at least one "done when" item. A Subtask with no entry is unplanned: stop and send Pedro to `factory:split`. The one exception is a `Simplify` or `Full Gates failures` Subtask whose entry is missing (the session ended between filing it and writing its entry): append the entry as in step 5 or step 6 and go on.
 
 ## 2. Check the builders and the tiers
 
@@ -67,16 +67,16 @@ On a new Run, `story_move` the Story to `building` now.
 
 ## 4. Build each Subtask
 
-In plan order, for each Subtask not `done` or `canceled` except the `Simplify` Subtask, which step 5 builds:
+In plan order, for each Subtask not `done` or `canceled` except the `Simplify` Subtask, which step 5 builds, and a `Full Gates failures` Subtask, which step 6 builds:
 
 1. `subtask_move` it to `in_progress` (if it isn't already).
 2. `subtask_handoff` with the builder and its model.
-3. **Build.** Delegate to the builder (`factory:implementer`, or the Specialist by name) with the model from step 2. Hand it the Story key, the full brief, the Subtask's key, title, slice (from its description) and "done when" items (from the plan). A Specialist's handoff also carries the Implementer's rules, since its file doesn't repeat them: only this Subtask, tests with the code, run scoped checks (the tests that cover the change, and the type check when TypeScript changed; not the full Gates, which QA runs), write each check's full output and exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-<specialist-name>-<round>.log` before filtering it, never commit, push, switch branches or touch the board, never weaken a test or a Gate, and end with the Implementer's `## Result` block.
-4. **Blocked**: a builder that returns `status: blocked` needs a decision from Pedro. `run_stop` with `<KEY>: <what it is blocked by>` and go to step 9.
-5. **Verify.** First `verify_start` with the Subtask's key: it logs the round's start on the trail, and the Run graph lights Verify from it. Call it once per round, round 2 included. A refusal (the Subtask isn't `in_progress`, the Story isn't building, or its Run is stopped) stops the step, as any refused board call does. Then delegate to `factory:qa` with the Story key and brief, the Subtask and its "done when" items, the builder's result block, the round number, and the command that runs the Gates: `node "<this skill's base directory>/../../scripts/run-gates.mjs" "$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log"`. It returns a `## Verify` block. Record it: `subtask_verify` with `passed` and its `reason`.
+3. **Build.** Delegate to the builder (`factory:implementer`, or the Specialist by name) with the model from step 2. Hand it the Story key, the full brief, the Subtask's key, title, slice (from its description) and "done when" items (from the plan). A Specialist's handoff also carries the Implementer's rules, since its file doesn't repeat them: only this Subtask, tests with the code, run scoped checks (the tests that cover the change, and the type check when TypeScript changed; not the Gates, which QA runs), write each check's full output and exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-<specialist-name>-<round>.log` before filtering it, never commit, push, switch branches or touch the board, never weaken a test or a Gate, and end with the Implementer's `## Result` block.
+4. **Blocked**: a builder that returns `status: blocked` needs a decision from Pedro. `run_stop` with `<KEY>: <what it is blocked by>` and go to step 10.
+5. **Verify.** First `verify_start` with the Subtask's key: it logs the round's start on the trail, and the Run graph lights Verify from it. Call it once per round, round 2 included. A refusal (the Subtask isn't `in_progress`, the Story isn't building, or its Run is stopped) stops the step, as any refused board call does. Then delegate to `factory:qa` with the Story key and brief, the Subtask and its "done when" items, the builder's result block, the round number, and the command that runs the Gates scoped to the Subtask's change: `node "<this skill's base directory>/../../scripts/run-gates.mjs" --scoped "$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log"`. Scoped, it runs the type check and any Gate with no scope in full, the tests related to the changed files where a Gate has a `related` form, and skips a Gate whose `paths` saw no change. The full Gates run once, in step 6. It returns a `## Verify` block. Record it: `subtask_verify` with `passed` and its `reason`.
 6. **Pass**: commit the Subtask (below), `subtask_move` it to `done`, and go on to the next one.
    **Fail, round 1**: hand the same Subtask back to the builder: a new `subtask_handoff`, then build again with QA's findings attached, then Verify as round 2.
-   **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 9. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
+   **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 10. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
 
 A round is one build plus one Verify. Rounds count from 1 for each Subtask, and again from 1 after a restart. On a resumed Run, count them from `story_trail`: the Subtask's Verify results since the Run's last restart (or its start), so a new session never grants a third round. A Verify start with no result after it (a session that ended during QA) is not a round: call `verify_start` again for the same round.
 
@@ -112,23 +112,49 @@ After the last Subtask passes, the code the Story wrote gets one cleanup pass, b
    ```
 
    - **Exit 0**: the tree is clean (no tracked or untracked change) and HEAD is still that sha. Skip QA, and with it `verify_start`: `subtask_verify` with `passed` and the line it printed as the reason (`No change: tree clean, HEAD <sha> already verified`), then `subtask_move` it to `done` with nothing to commit, and say so in the report.
-   - **Exit 1 or 2**: Verify it as in step 4, items 5 and 6, with its own 2 rounds, whatever Simplify's result says. A retry goes back to item 3 of step 4 and then to this check again.
+   - **Exit 1 or 2**: Verify it as in step 4, items 5 and 6 (scoped, like any Subtask: step 6 runs the full Gates next), with its own 2 rounds, whatever Simplify's result says. A retry goes back to item 3 of step 4 and then to this check again.
 
-A `done` Simplify Subtask is never filed or built again; go on to Docs.
+A `done` Simplify Subtask is never filed or built again; go on to the full Gates.
 
-## 6. Docs
+## 6. Full Gates
 
-After Simplify is done, delegate once to `factory:docs` with the Story key, the brief and the Story's diff against production. Commit what it changed as one commit, the same way, with the prefix the project's `CLAUDE.md` gives for docs changes (`docs:` when it says nothing). When it changed nothing, say so and go on. Open questions it reports go in your final report, not into the docs.
+Each Subtask's Verify ran only the Gates its change touched. Before Docs and Review, you run every Gate in full once, on the Story's whole tree, from the repo root:
 
-## 7. Review
+```
+node "<this skill's base directory>/../../scripts/run-gates.mjs" "$(git rev-parse --git-path factory/logs/<KEY>)/<KEY>-full-<round>.log"
+```
 
-Run the `factory:review` skill on the Story. Codex reviews the whole Story diff; blocking findings come back as a bug Subtask, which you build, Verify and commit as in step 4, then Codex reviews again. It stops the Run itself after 2 failed rounds or when Codex is unavailable: then go to step 9. Go on only with a passed Review on the current head.
+No `--scoped`. `<round>` is 1, or the next number free in that directory when a resumed Run runs it again.
 
-## 8. Integrate
+- **Exit 0**: go on to Docs. This run recorded the evidence the PR gate reuses: a Docs commit changes only doc-only paths, so the tree key still matches and the PR gate skips what passed here.
+- **Exit 1**: a Gate failed, on code every Subtask's scoped Verify passed. File it as a bug, the way Review does: `subtask_create` with `bug: true`, title `Full Gates failures`, no risk, the description `agent: <the agent that built the code the failures point at; implementer when they span several>`, then `story_edit` the brief with its entry appended to `## Plan` (send the whole brief):
 
-Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or a conflict it couldn't resolve. Integrate commits nothing new on the Feature branch in a Run, so the Review from step 7 still covers its head; a conflict it resolves goes on a resolution branch, which that Review covers too.
+  ```
+  ### <KEY> Full Gates failures
+  - agent: <the builder>
+  - done when:
+    - The full Gates pass (`run-gates.mjs` without `--scoped`).
+    - Each failure in <the log file> is fixed in the code, not by weakening a test or a Gate.
+  ```
 
-## 9. Report
+  Build it as in step 4, items 1 to 4, handing the builder the failing Gates and the log. Verify it as in step 4, items 5 and 6, except that QA gets the full command: the one above with no `--scoped` and the log `<subtask-key>-qa-<round>.log`. A pass commits it and moves it to `done`; a pass of the full Gates in that Verify is this step's pass, so go on to Docs. A second failed Verify stops the Run: `run_stop` with `<KEY>: Full Gates failed twice: <QA's reason>`, and go to step 10.
+- **Exit 2**: no config to run; stop and report it.
+
+On a resumed Run, an open `Full Gates failures` Subtask is built from where it stands, as above. With a `done` one, run the full Gates again: a pass goes on to Docs, a failure stops the Run (the 2-round rule already holds for that Subtask's fixes).
+
+## 7. Docs
+
+After the full Gates pass, delegate once to `factory:docs` with the Story key, the brief and the Story's diff against production. Commit what it changed as one commit, the same way, with the prefix the project's `CLAUDE.md` gives for docs changes (`docs:` when it says nothing). When it changed nothing, say so and go on. Open questions it reports go in your final report, not into the docs.
+
+## 8. Review
+
+Run the `factory:review` skill on the Story. Codex reviews the whole Story diff; blocking findings come back as a bug Subtask, which you build, Verify and commit as in step 4, then Codex reviews again. That fix's Verify is scoped like any Subtask's; the PR gate runs every Gate the fix left without evidence. It stops the Run itself after 2 failed rounds or when Codex is unavailable: then go to step 10. Go on only with a passed Review on the current head.
+
+## 9. Integrate
+
+Run the `factory:integrate` skill on the Story. It pushes the branch, opens the PR into the integration branch, waits for the PR checks, merges and moves the Story to `integrated_tests`. A failure there stops the Run the same way: `run_stop` with the failing check or a conflict it couldn't resolve. Integrate commits nothing new on the Feature branch in a Run, so the Review from step 8 still covers its head; a conflict it resolves goes on a resolution branch, which that Review covers too.
+
+## 10. Report
 
 End with the Story key and where it stands, then one line per Subtask: key, builder, rounds, verdict, then one line per Review round: verdict and comment link, and Codex's suggestions for Pedro to file or drop. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
 
