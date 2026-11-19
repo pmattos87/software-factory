@@ -69,7 +69,7 @@ The Claude Code session Pedro triggers to drive one Run from Build to Integrate.
 _Avoid_: main agent, coordinator
 
 **Verify**:
-The check that one Subtask is done: the project's gates (typecheck, lint, tests) pass and the definition-of-done items no command can check hold. Done per Subtask, by the QA Role agent.
+The check that one Subtask is done: the project's gates (typecheck, lint, tests) pass and the definition-of-done items no command can check hold. Done per Subtask, by the QA Role agent, with the Gates scoped to what the Subtask changed; every Gate runs in full once per Story, after Simplify.
 _Avoid_: QA pass, test step
 
 **Gates**:
