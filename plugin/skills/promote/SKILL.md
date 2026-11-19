@@ -134,7 +134,7 @@ A Client Release goes through User testing before step 5. The client tests a bet
 
 1. On the Release branch, in line with origin: `git-bot tag -a v<version>-beta.<n> -m "v<version>-beta.<n>"`, then `git push origin v<version>-beta.<n>`.
 2. **Build the beta set** from that tag: `git switch --detach v<version>-beta.<n>`, run each `release.assets.beta.build` command, then `node release-assets.mjs beta <version>` lists its files (a `FAIL` stops here, as in step 6.5). Only the beta set is built and attached: the production installer is never on a pre-release, and is built only in 6. Finish, after the client approved and Pedro merged.
-3. **Launch that build on staging** (`release.notes.staging`): the documents' screenshots and the guide's dry run must show what the client will install.
+3. **Use the release environment** (`environments.release`) for that build: the documents' screenshots and the guide's dry run run there, with the beta's build, so they show what the client will install. Never `environments.integration`, whose database the integration branch's migrations may have moved ahead of the beta. Both skills back up the release environment's data folder first and restore it after.
 4. **Build both documents** for this beta: `factory:release-notes`, then `factory:test-guide`. Both write into the beta's folder. Beta 1 covers the whole Release; beta 2 and later cover only what changed since the previous beta (each skill decides this itself), and start from a copy of the previous beta's sources. Their files, ASCII with no spaces since GitHub renames spaces in asset names:
    - `<project-key>-release-notes-v<version>-beta.<n>.pdf`
    - `<project-key>-test-guide-v<version>-beta.<n>.html`
@@ -155,7 +155,7 @@ After 3. Cut: tag beta 1, then `release_move` the Release to `user_testing`. Its
 
 ### 7.2 The next beta, after a fix or a changed pick
 
-The client reports a bug: Pedro files it as a bug Subtask on the Story (`factory:story-status`), which sends the Story back to `building`. The fix is built on the Story's own Feature branch (`factory:run` picks it up), integrated into the integration branch, and tested by Pedro there until the Story is `tested` again. Then this skill runs again.
+The client reports a bug: Pedro files it as a bug Subtask on the Story (`factory:story-status`), which sends the Story back to `building`. The fix is built on the Story's own Feature branch (`factory:run` picks it up), integrated into the integration branch, and tested by Pedro there (with `environments.integration`, never the release environment) until the Story is `tested` again. Then this skill runs again.
 
 1. Every pick must be `user_testing` or `tested`. A pick still in `building` or `integrated_tests` holds the next beta: say which, and stop.
 2. Sync (section 4) merges each pick's Feature branch again, which brings in the fix. A pick added during User testing is merged the same way, and a removed pick is reverted (a beta exists, so the branch is never re-cut).

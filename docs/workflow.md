@@ -19,8 +19,8 @@ Every skill is invoked as `factory:<name>`. Most replace a user-level skill, whi
 | Plan → In integrated tests | `story-status` | `flowboard-issue` | Creates and moves Stories and Subtasks through the `flowboard` MCP |
 | Integrate | `integrate` | `ship` | Commits on the Feature branch, opens the PR into the integration branch, merges it once green, moves the Story to `integrated_tests` |
 | User testing, Production | `promote` | `release` | Cuts a picked Release's `release/vX.Y.Z` branch, tags betas for the client (Client projects), opens the PR into production, and after Pedro's merge tags, publishes the GitHub Release and marks the Release released |
-| User testing | `release-notes` | `release-notes` | Turns a Release (or one beta) into a client-facing PDF deck with screenshots from staging, printed from a local HTML shell and checked page by page; Client projects only |
-| User testing | `test-guide` | | Turns a Release (or one beta) into the client's step-by-step test guide, dry-run on staging and rendered as one self-contained HTML file; Client projects only |
+| User testing | `release-notes` | `release-notes` | Turns a Release (or one beta) into a client-facing PDF deck with screenshots from the release environment, printed from a local HTML shell and checked page by page; Client projects only |
+| User testing | `test-guide` | | Turns a Release (or one beta) into the client's step-by-step test guide, dry-run on the release environment and rendered as one self-contained HTML file; Client projects only |
 
 The Shape skills are verbatim copies of the originals, pinned to the Factory's version. `shape-map` carries its own tracker description ([TRACKER.md](../plugin/skills/shape-map/TRACKER.md)) in place of the dropped `setup-matt-pocock-skills`.
 
@@ -44,7 +44,7 @@ None of them touches the board, commits or pushes: each ends with a fixed result
 2. **Build.** Pedro starts the Run with `factory:run <KEY>`. The Orchestrator cuts the Feature branch from production, merges in the Feature branch of each Story it depends on that isn't in production yet, moves the Story to `building`, and for each Subtask in plan order: hands it to its builder, has QA Verify it (each round starts with `verify_start`, which lights Verify on the Run graph), records both on the Run trail, and commits it once it passes. After the last Subtask, the `simplify` agent cleans up the code the Story wrote, without changing its behavior, as one more Subtask (`Simplify`, 0 points, Verified like the others). Nothing to simplify means nothing to commit and no Verify: with a clean tree and HEAD unchanged since the hand-off, the Orchestrator records the pass with that sha instead of running QA ([check-noop.mjs](../plugin/scripts/check-noop.mjs) decides). Then the Docs agent updates the docs in one more commit.
 3. **Review.** `factory:review` has Codex read the whole Story diff against the brief and the [review standard](../plugin/review/standard.md) ([Review](#review)). Only a pass on the branch's head goes on.
 4. **Integrate.** The Run ends with `factory:integrate`: the PR into the integration branch (the PR gate checks the Review, the Gates and the conventions first), the PR checks, a merge commit as `pmattos-pr-review-agent`, and the Story in `integrated_tests`.
-5. **In integrated tests.** Pedro tests on the integration branch. When it passes, `story-status` moves the Story to `tested`. When it fails, a bug Subtask sends it back to `building`, and `factory:run` picks it up on the same Feature branch.
+5. **In integrated tests.** Pedro tests on the integration branch, with the `integration` environment on a Client project ([Data environments](#data-environments)). When it passes, `story-status` moves the Story to `tested`. When it fails, a bug Subtask sends it back to `building`, and `factory:run` picks it up on the same Feature branch.
 6. **Release.** Pedro picks `tested` Stories into a Release on Flowboard's Releases screen, and `factory:promote` takes it to production ([Releases](#releases)). The Story ends `done`.
 
 ### Review
@@ -79,13 +79,22 @@ On an Internal project:
 
 On a Client project, **User testing** comes between 2 and 3:
 
-- After the cut, `promote` tags `vX.Y.Z-beta.1` on the Release branch, builds the beta asset set (the test installer, never the production one), launches that build on staging, and runs `factory:release-notes` (the deck, as a PDF) and `factory:test-guide` (the test guide, as one HTML file). Pedro reviews both; only then is the beta published as a GitHub pre-release with the beta set's files and both documents, and the Release moves to `user_testing`: its Stories go to the primary client contact. Beta 1's documents cover the whole Release; each later beta's cover only what changed since the previous one.
-- **The documents live in the Releases folder**, outside every repo: `<Releases root>\<project>\Release X.Y.Z\beta.<n>\` holds the beta's published files (the deck's PDF, the test guide's HTML and the release notes, `notes.md`) and beside them `deck-source\` and `guide-source\`, where both skills build. A later beta starts from a copy of the previous beta's sources, and the final Release's notes go in `Release X.Y.Z\` itself. Nothing the client gets lives only in the scratchpad (a staging data backup may), and nothing under the Releases root is committed to a repo. [release-folder.mjs](../plugin/scripts/release-folder.mjs) prints the folder.
+- After the cut, `promote` tags `vX.Y.Z-beta.1` on the Release branch, builds the beta asset set (the test installer, never the production one), uses that build on the `release` environment, and runs `factory:release-notes` (the deck, as a PDF) and `factory:test-guide` (the test guide, as one HTML file). Pedro reviews both; only then is the beta published as a GitHub pre-release with the beta set's files and both documents, and the Release moves to `user_testing`: its Stories go to the primary client contact. Beta 1's documents cover the whole Release; each later beta's cover only what changed since the previous one.
+- **The documents live in the Releases folder**, outside every repo: `<Releases root>\<project>\Release X.Y.Z\beta.<n>\` holds the beta's published files (the deck's PDF, the test guide's HTML and the release notes, `notes.md`) and beside them `deck-source\` and `guide-source\`, where both skills build. A later beta starts from a copy of the previous beta's sources, and the final Release's notes go in `Release X.Y.Z\` itself. Nothing the client gets lives only in the scratchpad (a data backup may), and nothing under the Releases root is committed to a repo. [release-folder.mjs](../plugin/scripts/release-folder.mjs) prints the folder.
 - **A bug the client finds** becomes a bug Subtask, which sends the Story back to `building`. It's fixed on the Story's Feature branch, integrated and passed by Pedro (`tested`) as any fix. Then `promote` merges it into the Release branch, tags the next beta and returns the Story to `user_testing`. Once a beta exists, a removed pick is reverted, never re-cut.
 - When Pedro says the client approved the last beta, `promote` opens the PR into production, and goes on from step 3. The approved beta is what ships: the branch isn't synced once that PR is open.
 - **The production installer is built only after the merge**, from the merge commit, and only when `git diff v<version>-beta.<last> <merge commit>` is empty: anything else is code the client never tested, and `promote` stops for Pedro. The beta ran on the test database, so a Release with a migration still needs its rehearsal on a copy of the production database before the production installer ships.
 
-The release settings (`release.versionFiles`, `release.assets` with its beta and production sets on Client projects, and `release.notes`) are in [Guardrails](guardrails.md#per-project-config).
+### Data environments
+
+A Client project names two environments in `.claude/factory.json`, and they never share a data folder:
+
+- **`integration`** is what Pedro tests the integration branch with, in `integrated_tests`, and what any by-eye check from `run` or `integrate` uses.
+- **`release`** is what the client installs. User testing and every beta use it: `release-notes` takes its screenshots there and `test-guide` dry-runs there, each with the beta's build, backing up its data folder first and restoring it after, and never touching `integration`'s.
+
+`release` only ever runs code that is in production or in a Release branch, so its database is never ahead of a beta. The integration branch's migrations move only `integration`'s database, and a beta never crashes on a database newer than itself. How a project provides the second environment (a second app identifier, a second data folder, a second build) is its own decision; the Factory only requires that both exist and differ, and `check-release.mjs --client` checks it.
+
+The release settings (`release.versionFiles`, `release.assets` with its beta and production sets on Client projects, `release.notes` and `environments`) are in [Guardrails](guardrails.md#per-project-config).
 
 ## Merging into the integration branch
 

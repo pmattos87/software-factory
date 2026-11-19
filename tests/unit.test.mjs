@@ -10,6 +10,7 @@ import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides, ROLE_AGENTS } from '../plugin/scripts/lib/specialists.mjs';
 import { releaseSettings, readVersion, checkRelease, assetSets, assetPatterns } from '../plugin/scripts/lib/release.mjs';
 import { releaseFolder, projectFolder, userConfigPath, loadUserConfig, checkReleasesRoot, checkDocuments } from '../plugin/scripts/lib/releases.mjs';
+import { checkEnvironments, expandPath } from '../plugin/scripts/lib/environments.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
@@ -138,7 +139,7 @@ test('release settings are checked against the project files', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-release-'));
   fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.5.1"}');
   fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.5.1"\n');
-  const check = (raw, opts) => checkRelease(root, releaseSettings(raw), opts);
+  const check = (raw, opts) => checkRelease(root, releaseSettings(raw), opts && { environments: CLIENT_ENVIRONMENTS, env: TEST_ENV, ...opts });
 
   assert.deepEqual(check({ versionFiles: ['package.json', 'Cargo.toml'], assets: { build: ['npm run dist'], files: ['dist/*.zip'] } }), []);
   assert.deepEqual(check({}), ['release.versionFiles is empty: name the files that carry the version']);
@@ -148,15 +149,24 @@ test('release settings are checked against the project files', () => {
   fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.4.0"\n');
   assert.match(check({ versionFiles: ['package.json', 'Cargo.toml'] })[0], /disagree: package.json 1.5.1, Cargo.toml 1.4.0/);
 
-  assert.equal(check({ versionFiles: ['package.json'], assets: CLIENT_ASSETS }, { client: true }).length, 3);
-  const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
+  assert.deepEqual(check({ versionFiles: ['package.json'], assets: CLIENT_ASSETS }, { client: true }), ['release.notes.client is required on a Client project', 'release.notes.language is required on a Client project']);
+  const notes = { client: 'Eduardo & Luli', language: 'pt-BR' };
   const client = { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes };
   assert.deepEqual(check(client, { client: true }), []);
+  // staging moved to environments.release.launch.
+  assert.deepEqual(check({ ...client, notes: { ...notes, staging: 'npm run dev:staging' } }, { client: true }), ['release.notes.staging is replaced by environments.release.launch: move it there (screenshots and dry runs run on the release environment)']);
+  assert.equal(check(client, { client: true, environments: {} }).length, 2);
   assert.deepEqual(check({ ...client, notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), ["release.notes.guide docs/release-notes.md doesn't exist"]);
   fs.mkdirSync(path.join(root, 'docs'));
   fs.writeFileSync(path.join(root, 'docs/release-notes.md'), '# Deck style\n');
   assert.deepEqual(check({ ...client, notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), []);
 });
+
+const TEST_ENV = { APPDATA: path.join(os.tmpdir(), 'AppData', 'Roaming') };
+const CLIENT_ENVIRONMENTS = {
+  integration: { launch: 'npm run dev:integration', data: '%APPDATA%/App/integration' },
+  release: { build: ['npm run build:staging'], launch: 'App - Testes.exe', data: '%APPDATA%/App/testes' },
+};
 
 const CLIENT_ASSETS = {
   beta: { build: ['npm ci', 'npm run build:staging'], files: ['nsis/App - Testes_<version>_*-setup.exe'] },
@@ -166,8 +176,8 @@ const CLIENT_ASSETS = {
 test('a Client project needs a beta and a production asset set, each with versioned files', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-assets-'));
   fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.5.1"}');
-  const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
-  const check = (assets, client = true) => checkRelease(root, releaseSettings({ versionFiles: ['package.json'], assets, notes }), { client });
+  const notes = { client: 'Eduardo & Luli', language: 'pt-BR' };
+  const check = (assets, client = true) => checkRelease(root, releaseSettings({ versionFiles: ['package.json'], assets, notes }), { client, environments: CLIENT_ENVIRONMENTS, env: TEST_ENV });
   const { beta, production } = CLIENT_ASSETS;
   const required = (name) => `release.assets.${name} is required on a Client project: betas ship the beta set, the final Release the production set`;
 
@@ -185,6 +195,64 @@ test('a Client project needs a beta and a production asset set, each with versio
   ]);
   // An Internal project keeps the old single set, unversioned, as before.
   assert.deepEqual(check({ build: ['npx tauri build'], files: ['nsis/*-setup.exe'] }, false), []);
+});
+
+test('a Client project keeps integration testing and user testing on separate data folders', () => {
+  const root = path.resolve(os.tmpdir(), 'repo');
+  const env = { APPDATA: 'C:\\Users\\p\\AppData\\Roaming', LocalAppData: 'C:\\Users\\p\\AppData\\Local', USERPROFILE: 'C:\\Users\\p' };
+  const check = (environments) => checkEnvironments(environments, root, env);
+  const integration = { launch: 'npm run dev:integration', data: '%APPDATA%\\HammerLoc\\integracao' };
+  const release = { build: ['npm run build:staging'], launch: 'Hammer Loc - Testes.exe', data: '%APPDATA%\\HammerLoc\\testes' };
+
+  assert.deepEqual(check({ integration, release }), []);
+  assert.deepEqual(check({ release }), ["environments.integration is required on a Client project: integration testing and the client's betas never share a data folder"]);
+  assert.deepEqual(check({}).length, 2);
+  assert.deepEqual(check({ integration: { launch: 'x' }, release }), ['environments.integration.data is required: the folder that holds its database']);
+  assert.deepEqual(check({ integration: { data: 'a' }, release }), ['environments.integration.launch is required: the command or URL that starts it']);
+  assert.deepEqual(check({ integration: { ...integration, build: 'npm run build' }, release }), ['environments.integration.build must be a list of commands']);
+
+  // The same folder, however it is spelled: case, separators, a trailing slash, an env var.
+  const same = 'environments.integration.data and environments.release.data are the same folder';
+  assert.match(check({ integration: { ...integration, data: 'C:/Users/P/appdata/roaming/HammerLoc/Testes/' }, release })[0], new RegExp(same));
+  assert.match(check({ integration: { ...integration, data: '%appdata%\\HammerLoc\\testes' }, release })[0], new RegExp(same));
+  assert.match(check({ integration: { ...integration, data: '~\\AppData\\Roaming\\HammerLoc\\testes' }, release })[0], new RegExp(same));
+  // One inside the other.
+  assert.match(check({ integration: { ...integration, data: '%APPDATA%\\HammerLoc' }, release })[0], /are nested: one is inside the other/);
+  assert.match(check({ integration, release: { ...release, data: '%APPDATA%\\HammerLoc\\integracao\\beta' } })[0], /are nested/);
+  // A prefix that isn't a parent folder is apart.
+  assert.deepEqual(check({ integration: { ...integration, data: '%APPDATA%\\HammerLoc\\testes-integracao' }, release }), []);
+  // Relative folders resolve against the repo root.
+  assert.match(check({ integration: { ...integration, data: 'data' }, release: { ...release, data: path.join(root, 'data') } })[0], new RegExp(same));
+  assert.deepEqual(check({ integration: { ...integration, data: '%NOPE%\\x' }, release }), ["environments.integration.data %NOPE%\\x uses %NOPE%, which isn't set on this machine"]);
+
+  assert.deepEqual(expandPath('%LOCALAPPDATA%\\x', env), { path: 'C:\\Users\\p\\AppData\\Local\\x' });
+  assert.deepEqual(expandPath('~/x', env), { path: 'C:\\Users\\p/x' });
+  assert.deepEqual(expandPath('a~b', env), { path: 'a~b' });
+});
+
+test('check-release --client refuses environments that share a data folder', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-environments-'));
+  fs.mkdirSync(path.join(base, 'Releases'));
+  fs.writeFileSync(path.join(base, 'user.json'), JSON.stringify({ releasesRoot: path.join(base, 'Releases') }));
+  const repo = path.join(base, 'repo');
+  fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.6.0"}');
+  const write = (environments) => fs.writeFileSync(path.join(repo, '.claude/factory.json'), JSON.stringify({
+    boardKey: 'HL',
+    environments,
+    release: { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes: { client: 'Eduardo & Luli', language: 'pt-BR' } },
+  }));
+  const run = () => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/check-release.mjs'), '--client'], {
+    cwd: repo, encoding: 'utf8', env: { ...process.env, ...TEST_ENV, FACTORY_USER_CONFIG: path.join(base, 'user.json') },
+  });
+
+  write(CLIENT_ENVIRONMENTS);
+  assert.equal(run().status, 0);
+  write({ ...CLIENT_ENVIRONMENTS, integration: { ...CLIENT_ENVIRONMENTS.integration, data: CLIENT_ENVIRONMENTS.release.data } });
+  const r = run();
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^FAIL environments.integration.data and environments.release.data are the same folder/);
+  fs.rmSync(base, { recursive: true, force: true });
 });
 
 test('asset sets read the old single shape as production and fill in the version', () => {
@@ -264,10 +332,11 @@ test('check-release --client flags a missing Releases root; release-folder print
   fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.6.0"}');
   fs.writeFileSync(path.join(repo, '.claude/factory.json'), JSON.stringify({
     boardKey: 'HL',
-    release: { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes: { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' } },
+    environments: CLIENT_ENVIRONMENTS,
+    release: { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes: { client: 'Eduardo & Luli', language: 'pt-BR' } },
   }));
   const userFile = path.join(base, 'factory.user.json');
-  const env = { ...process.env, FACTORY_USER_CONFIG: userFile };
+  const env = { ...process.env, ...TEST_ENV, FACTORY_USER_CONFIG: userFile };
   const script = (name, ...args) => spawnSync('node', [path.resolve(import.meta.dirname, `../plugin/scripts/${name}`), ...args], { cwd: repo, encoding: 'utf8', env });
 
   let r = script('check-release.mjs', '--client');

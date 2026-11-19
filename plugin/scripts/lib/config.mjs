@@ -21,6 +21,7 @@ export function loadConfig(root) {
     build: raw.build ?? [],
     ci: raw.ci ?? {},
     agents: raw.agents ?? {},
+    environments: raw.environments ?? {},
     release: releaseSettings(raw.release),
   };
 }

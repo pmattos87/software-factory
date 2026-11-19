@@ -6,9 +6,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkDocuments } from './releases.mjs';
+import { checkEnvironments } from './environments.mjs';
 
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-const NOTES_FIELDS = ['client', 'language', 'staging'];
+const NOTES_FIELDS = ['client', 'language'];
 export const ASSET_SETS = ['beta', 'production'];
 
 const assetSet = (raw) => (raw ? { build: raw.build ?? [], files: raw.files ?? [] } : null);
@@ -59,8 +60,10 @@ export function readVersion(file, text) {
 }
 
 // Problems with a project's release settings; empty when promote can use them.
-// `client` adds the release-notes settings a Client project's User testing needs.
-export function checkRelease(root, settings, { client = false } = {}) {
+// `client` adds what a Client project's User testing needs: both asset sets, the
+// release-notes settings and the two data environments (`environments`, the
+// top-level key of factory.json).
+export function checkRelease(root, settings, { client = false, environments = {}, env = process.env } = {}) {
   const problems = [];
   if (!settings.versionFiles.length) problems.push('release.versionFiles is empty: name the files that carry the version');
 
@@ -103,7 +106,9 @@ export function checkRelease(root, settings, { client = false } = {}) {
     for (const field of NOTES_FIELDS) {
       if (!settings.notes?.[field]) problems.push(`release.notes.${field} is required on a Client project`);
     }
+    problems.push(...checkEnvironments(environments, root, env));
   }
+  if (settings.notes?.staging) problems.push('release.notes.staging is replaced by environments.release.launch: move it there (screenshots and dry runs run on the release environment)');
   problems.push(...checkDocuments(settings));
   const guide = settings.notes?.guide;
   if (guide && !fs.existsSync(path.join(root, guide))) problems.push(`release.notes.guide ${guide} doesn't exist`);
