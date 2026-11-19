@@ -1,18 +1,38 @@
 // A Consumer project's release settings (the `release` key of .claude/factory.json):
-// which files carry its version, how its release assets are built, where its
-// changelog is, and, on a Client project, what its release notes need. Read by the promote skill.
+// which files carry its version, how its release assets are built (a beta set and a
+// production set), where its changelog is, and, on a Client project, what its release
+// notes need. Read by the promote skill.
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 const NOTES_FIELDS = ['client', 'language', 'staging'];
+export const ASSET_SETS = ['beta', 'production'];
+
+const assetSet = (raw) => (raw ? { build: raw.build ?? [], files: raw.files ?? [] } : null);
+
+// The asset sets: `release.assets.beta` and `release.assets.production`, each
+// { build, files }. The old single `release.assets` { build, files } is the
+// production set, with no beta set (`single` is then true).
+export function assetSets(raw) {
+  if (raw && (raw.beta || raw.production)) return { single: false, beta: assetSet(raw.beta), production: assetSet(raw.production) };
+  return { single: true, beta: null, production: assetSet(raw ?? {}) };
+}
+
+// A set's file patterns for one version: every `<version>` replaced by it.
+export function assetPatterns(set, version) {
+  return (set?.files ?? []).map((pattern) => pattern.replaceAll('<version>', version));
+}
+
+// The settings key a set lives under, for messages.
+export const assetKey = (assets, name) => (assets.single ? 'release.assets' : `release.assets.${name}`);
 
 // The `release` key with its defaults filled in.
 export function releaseSettings(raw = {}) {
   return {
     versionFiles: raw.versionFiles ?? [],
-    assets: { build: raw.assets?.build ?? [], files: raw.assets?.files ?? [] },
+    assets: assetSets(raw.assets),
     notes: raw.notes ?? null,
     changelog: raw.changelog ?? null,
   };
@@ -61,8 +81,20 @@ export function checkRelease(root, settings, { client = false } = {}) {
     problems.push(`the version files disagree: ${[...versions].map(([f, v]) => `${f} ${v}`).join(', ')}`);
   }
 
-  if (settings.assets.files.length && !settings.assets.build.length) {
-    problems.push('release.assets.files is set but release.assets.build is empty: nothing would produce them');
+  const { assets } = settings;
+  for (const name of ASSET_SETS) {
+    const set = assets[name];
+    const key = assetKey(assets, name);
+    if (!set) {
+      if (client) problems.push(`release.assets.${name} is required on a Client project: betas ship the beta set, the final Release the production set`);
+      continue;
+    }
+    if (set.files.length && !set.build.length) problems.push(`${key}.files is set but ${key}.build is empty: nothing would produce them`);
+    if (!client) continue;
+    if (!set.files.length) problems.push(`${key}.files is empty on a Client project: name the files it ships`);
+    for (const pattern of set.files) {
+      if (!pattern.includes('<version>')) problems.push(`${key}.files pattern ${pattern} has no <version>: it would match the files of every version built`);
+    }
   }
 
   if (client) {
