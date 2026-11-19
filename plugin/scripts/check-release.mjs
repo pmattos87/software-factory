@@ -2,6 +2,7 @@
 // project's repo root:
 //   node check-release.mjs            an Internal project
 //   node check-release.mjs --client   a Client project, which also needs release.notes
+//                                     and both asset sets (beta, production) with <version>
 // Prints the current version or the problems; exits 1 when any setting fails.
 
 import fs from 'node:fs';

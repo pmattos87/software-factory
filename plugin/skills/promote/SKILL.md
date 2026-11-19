@@ -96,22 +96,23 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
 
 1. `gh pr view <url> --json state,mergeCommit`: it must be `MERGED`. Note the merge commit.
 2. `pr_set_state` the PR as `merged` on every picked Story.
-3. **Tag the merge commit**, unless `v<version>` already exists on origin (then stop: a published tag is never moved):
+3. **Client projects: the merge must be the approved beta.** `git diff --stat v<version>-beta.<last> <merge commit>` must print nothing, with `<last>` the highest beta tag. Anything it prints is code the client never tested (production gained commits after the cut, or the branch changed after the last beta): stop before tagging, show the diff stat, and leave it to Pedro. Nothing is tagged or built until it is empty.
+4. **Tag the merge commit**, unless `v<version>` already exists on origin (then stop: a published tag is never moved):
 
    ```
    git-bot tag -a v<version> <merge commit> -m "v<version>"
    git push origin v<version>
    ```
 
-4. **Build the assets** from the tag: `git switch --detach v<version>`, run each `release.assets.build` command (they install their own dependencies, so the build matches the tag, not whatever the checkout had), and check every `release.assets.files` pattern matches at least one file. A failed build or a missing file stops here, before anything is published.
-5. **Publish the GitHub Release** with the notes from step 5 and the asset files:
+5. **Build the production assets** from the tag: `git switch --detach v<version>`, run each `release.assets.production.build` command (`release.assets.build` on a project with the old single set), and list the files with `node release-assets.mjs production <version>`. The build commands install their own dependencies, so the build matches the tag, not whatever the checkout had. `release-assets.mjs` fills `<version>` into each files pattern and prints one file per line; a `FAIL` (a pattern that matches nothing) stops here, as does a failed build, before anything is published. On a Client project this is the first time the production installer is built: no beta ever carries it.
+6. **Publish the GitHub Release** with the notes from section 5 and the files `release-assets.mjs` listed:
 
    ```
    gh-bot release create v<version> <asset files> --verify-tag --title "v<version>" --notes-file <notes file>
    ```
 
-6. `release_move` the Release to `released`. Its Stories move to `done` with it; a refusal names the pick that blocks it.
-7. **Flag finished epics.** Take the open epics of the picks (the `epic` in each `story_show`, when its status is `todo`). Read each one's Stories with `flowboard-db` `read_query`, since no MCP call lists them yet:
+7. `release_move` the Release to `released`. Its Stories move to `done` with it; a refusal names the pick that blocks it.
+8. **Flag finished epics.** Take the open epics of the picks (the `epic` in each `story_show`, when its status is `todo`). Read each one's Stories with `flowboard-db` `read_query`, since no MCP call lists them yet:
 
    ```sql
    SELECT t.task_number, t.status FROM tasks t
@@ -120,8 +121,8 @@ Compare the branch with the pick: the Stories merged into it are the `Merge <bra
    ```
 
    An epic whose Stories are all `done` or `canceled` is ready to close: name it in the report. Never `epic_move` it yourself; closing it is Pedro's call.
-8. **Delete the branches** the Release no longer needs: each pick's Feature branch and the Release branch, on origin (`git push origin --delete <branch>`) and locally (`git branch -D <branch>`). Only this Release's branches: a Story not in it keeps its Feature branch, whatever its state.
-9. Switch back to the branch you started on.
+9. **Delete the branches** the Release no longer needs: each pick's Feature branch and the Release branch, on origin (`git push origin --delete <branch>`) and locally (`git branch -D <branch>`). Only this Release's branches: a Story not in it keeps its Feature branch, whatever its state.
+10. Switch back to the branch you started on.
 
 ## 7. Client projects: User testing
 
@@ -130,19 +131,19 @@ A Client Release goes through User testing before step 5. The client tests a bet
 **Tagging a beta** (used by 7.1 and 7.2), with `<n>` one more than the highest `v<version>-beta.*` tag (1 for the first):
 
 1. On the Release branch, in line with origin: `git-bot tag -a v<version>-beta.<n> -m "v<version>-beta.<n>"`, then `git push origin v<version>-beta.<n>`.
-2. Build the assets from that tag, as in step 6.4.
+2. **Build the beta set** from that tag: `git switch --detach v<version>-beta.<n>`, run each `release.assets.beta.build` command, then `node release-assets.mjs beta <version>` lists its files (a `FAIL` stops here, as in step 6.5). Only the beta set is built and attached: the production installer is never on a pre-release, and is built only in 6. Finish, after the client approved and Pedro merged.
 3. **Launch that build on staging** (`release.notes.staging`): the documents' screenshots and the guide's dry run must show what the client will install.
 4. **Build both documents** for this beta: `factory:release-notes`, then `factory:test-guide`. Beta 1 covers the whole Release; beta 2 and later cover only what changed since the previous beta (each skill decides this itself). Their files, ASCII with no spaces since GitHub renames spaces in asset names:
    - `<project-key>-release-notes-v<version>-beta.<n>.pdf`
    - `<project-key>-test-guide-v<version>-beta.<n>.html`
 5. **Stop for Pedro's review of both.** Show the deck's contact sheet and the guide's coverage table, and wait. His changes go back to the skill that made the document, and he reviews again. Nothing is published until he approves both.
-6. Publish the pre-release with every file at once, the installer and both documents, with the notes from step 5 under a `## v<version>-beta.<n>` heading:
+6. Publish the pre-release with every file at once, the beta set's files and both documents, with the notes from step 5 under a `## v<version>-beta.<n>` heading:
 
    ```
-   gh-bot release create v<version>-beta.<n> <asset files> <project-key>-release-notes-v<version>-beta.<n>.pdf <project-key>-test-guide-v<version>-beta.<n>.html --verify-tag --prerelease --title "v<version>-beta.<n>" --notes-file <notes file>
+   gh-bot release create v<version>-beta.<n> <beta set files> <project-key>-release-notes-v<version>-beta.<n>.pdf <project-key>-test-guide-v<version>-beta.<n>.html --verify-tag --prerelease --title "v<version>-beta.<n>" --notes-file <notes file>
    ```
 
-   Then check the pre-release lists all of them (`gh release view v<version>-beta.<n> --json assets`).
+   Then check the pre-release lists all of them and nothing else (`gh release view v<version>-beta.<n> --json assets`).
 
 **Resuming a beta** whose tag exists with no pre-release (the session ended during the review): don't tag again. Pick up at step 2 with the same `<n>`, reusing the documents only if Pedro already approved them for this tag.
 
@@ -161,13 +162,13 @@ The client reports a bug: Pedro files it as a bug Subtask on the Story (`factory
 
 ### 7.3 The client approved it
 
-Only when Pedro says, in this request, that the client approved the Release. The approved build is the last beta: the Release branch must not have changed since its tag (otherwise tag a new beta first, and the client tests that one). Every pick must be `user_testing`. Then go to 5. PR, and 6. Finish once Pedro merges it: `release_move` takes the Release from `user_testing` to `released`, and its Stories to `done`.
+Only when Pedro says, in this request, that the client approved the Release. The approved build is the last beta: the Release branch must not have changed since its tag (otherwise tag a new beta first, and the client tests that one). Every pick must be `user_testing`. The beta ran on the test database, so a Release with a migration still needs its rehearsal on a copy of the production database before the production installer ships: say so to Pedro when the Release adds one. Then go to 5. PR, and 6. Finish once Pedro merges it: `release_move` takes the Release from `user_testing` to `released`, and its Stories to `done`.
 
 The final tag `v<version>` goes on the merge commit in production, as on an Internal project. The beta tags and pre-releases stay.
 
 ## 8. Report
 
-The version, where the Release stands now, the picked Stories (key, title, status), and the links: the PR, the GitHub Release and its assets once finished. After 6. Finish, each epic flagged in step 6.7 (key and title), with the `epic_move` to `done` that closes it once Pedro says so. When the skill stopped for Pedro, say exactly what he has to do and that running it again picks up from there.
+The version, where the Release stands now, the picked Stories (key, title, status), and the links: the PR, the GitHub Release and its assets once finished. After 6. Finish, each epic flagged in step 6.8 (key and title), with the `epic_move` to `done` that closes it once Pedro says so. When the skill stopped for Pedro, say exactly what he has to do and that running it again picks up from there.
 
 ## Guardrails
 

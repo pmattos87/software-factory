@@ -8,7 +8,7 @@ import { parsePush } from '../plugin/scripts/lib/push.mjs';
 import { checkPullRequest, parseFeatureBranch, checkMerge } from '../plugin/scripts/lib/conventions.mjs';
 import { parseMerge } from '../plugin/scripts/lib/merge.mjs';
 import { checkSpecialist, checkTierOverrides, ROLE_AGENTS } from '../plugin/scripts/lib/specialists.mjs';
-import { releaseSettings, readVersion, checkRelease } from '../plugin/scripts/lib/release.mjs';
+import { releaseSettings, readVersion, checkRelease, assetSets, assetPatterns } from '../plugin/scripts/lib/release.mjs';
 import { bumpKind, nextVersion, setVersion, setLockedVersion } from '../plugin/scripts/lib/version.mjs';
 import { findCodex, buildPrompt, codexArgs, readEvents, checkVerdict, SCHEMA } from '../plugin/scripts/lib/review.mjs';
 import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../plugin/scripts/lib/unreleased.mjs';
@@ -147,13 +147,83 @@ test('release settings are checked against the project files', () => {
   fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nversion = "1.4.0"\n');
   assert.match(check({ versionFiles: ['package.json', 'Cargo.toml'] })[0], /disagree: package.json 1.5.1, Cargo.toml 1.4.0/);
 
-  assert.equal(check({ versionFiles: ['package.json'] }, { client: true }).length, 3);
+  assert.equal(check({ versionFiles: ['package.json'], assets: CLIENT_ASSETS }, { client: true }).length, 3);
   const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
-  assert.deepEqual(check({ versionFiles: ['package.json'], notes }, { client: true }), []);
-  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), ["release.notes.guide docs/release-notes.md doesn't exist"]);
+  const client = { versionFiles: ['package.json'], assets: CLIENT_ASSETS, notes };
+  assert.deepEqual(check(client, { client: true }), []);
+  assert.deepEqual(check({ ...client, notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), ["release.notes.guide docs/release-notes.md doesn't exist"]);
   fs.mkdirSync(path.join(root, 'docs'));
   fs.writeFileSync(path.join(root, 'docs/release-notes.md'), '# Deck style\n');
-  assert.deepEqual(check({ versionFiles: ['package.json'], notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), []);
+  assert.deepEqual(check({ ...client, notes: { ...notes, guide: 'docs/release-notes.md' } }, { client: true }), []);
+});
+
+const CLIENT_ASSETS = {
+  beta: { build: ['npm ci', 'npm run build:staging'], files: ['nsis/App - Testes_<version>_*-setup.exe'] },
+  production: { build: ['npm ci', 'npx tauri build'], files: ['nsis/App_<version>_*-setup.exe'] },
+};
+
+test('a Client project needs a beta and a production asset set, each with versioned files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-assets-'));
+  fs.writeFileSync(path.join(root, 'package.json'), '{"version":"1.5.1"}');
+  const notes = { client: 'Eduardo & Luli', language: 'pt-BR', staging: 'npm run dev:staging' };
+  const check = (assets, client = true) => checkRelease(root, releaseSettings({ versionFiles: ['package.json'], assets, notes }), { client });
+  const { beta, production } = CLIENT_ASSETS;
+  const required = (name) => `release.assets.${name} is required on a Client project: betas ship the beta set, the final Release the production set`;
+
+  assert.deepEqual(check({ beta, production }), []);
+  assert.deepEqual(check({ production }), [required('beta')]);
+  assert.deepEqual(check({ beta }), [required('production')]);
+  assert.deepEqual(check({ beta: { ...beta, files: ['nsis/*-setup.exe'] }, production }), ['release.assets.beta.files pattern nsis/*-setup.exe has no <version>: it would match the files of every version built']);
+  assert.deepEqual(check({ beta, production: { files: production.files } }), ['release.assets.production.files is set but release.assets.production.build is empty: nothing would produce them']);
+  assert.deepEqual(check({ beta: { build: beta.build }, production }), ['release.assets.beta.files is empty on a Client project: name the files it ships']);
+
+  // The old single set on a Client project is only the production set, and unversioned.
+  assert.deepEqual(check({ build: ['npx tauri build'], files: ['nsis/*-setup.exe'] }), [
+    required('beta'),
+    'release.assets.files pattern nsis/*-setup.exe has no <version>: it would match the files of every version built',
+  ]);
+  // An Internal project keeps the old single set, unversioned, as before.
+  assert.deepEqual(check({ build: ['npx tauri build'], files: ['nsis/*-setup.exe'] }, false), []);
+});
+
+test('asset sets read the old single shape as production and fill in the version', () => {
+  assert.deepEqual(assetSets({ build: ['b'], files: ['f'] }), { single: true, beta: null, production: { build: ['b'], files: ['f'] } });
+  assert.deepEqual(assetSets(undefined), { single: true, beta: null, production: { build: [], files: [] } });
+  assert.deepEqual(assetSets({ beta: { build: ['s'] }, production: { files: ['p'] } }), { single: false, beta: { build: ['s'], files: [] }, production: { build: [], files: ['p'] } });
+  assert.deepEqual(assetPatterns({ files: ['a_<version>_*.exe', 'b/<version>/<version>.zip', 'c.msi'] }, '1.6.0'), ['a_1.6.0_*.exe', 'b/1.6.0/1.6.0.zip', 'c.msi']);
+  assert.deepEqual(assetPatterns(null, '1.6.0'), []);
+});
+
+test('release-assets lists only the set and version asked for', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-release-assets-'));
+  const run = (...args) => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/release-assets.mjs'), ...args], { cwd: root, encoding: 'utf8' });
+  const nsis = path.join(root, 'bundle', 'nsis');
+  fs.mkdirSync(nsis, { recursive: true });
+  for (const f of ['App - Testes_1.6.0_x64-setup.exe', 'App - Testes_1.5.0_x64-setup.exe', 'App - Prod_1.6.0_x64-setup.exe']) fs.writeFileSync(path.join(nsis, f), '');
+  fs.mkdirSync(path.join(root, '.claude'));
+  const write = (assets) => fs.writeFileSync(path.join(root, '.claude/factory.json'), JSON.stringify({ boardKey: 'HL', release: { assets } }));
+
+  write({
+    beta: { build: ['x'], files: ['bundle/nsis/App - Testes_<version>_*-setup.exe'] },
+    production: { build: ['y'], files: ['bundle/nsis/App - Prod_<version>_*-setup.exe'] },
+  });
+  let r = run('beta', '1.6.0');
+  assert.equal(r.status, 0, r.stdout);
+  assert.equal(r.stdout, 'bundle/nsis/App - Testes_1.6.0_x64-setup.exe\n');
+  assert.equal(run('production', '1.6.0').stdout, 'bundle/nsis/App - Prod_1.6.0_x64-setup.exe\n');
+  r = run('production', '1.7.0');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, 'FAIL bundle/nsis/App - Prod_1.7.0_*-setup.exe matches no file\n');
+
+  // An Internal project's old single set is the production set; it has no beta set.
+  write({ build: ['y'], files: ['bundle/nsis/*-setup.exe'] });
+  r = run('production', '1.6.0');
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim().split('\n').length, 3);
+  r = run('beta', '1.6.0');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, 'FAIL release.assets.beta is not set\n');
+  assert.equal(run('nightly', '1.6.0').status, 2);
 });
 
 test('the next version follows the commit types', () => {
