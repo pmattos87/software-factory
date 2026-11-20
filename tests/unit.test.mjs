@@ -17,6 +17,7 @@ import { mergedBranch, parseLog, unreleasedOverlap, readUnreleased } from '../pl
 import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
 import { loadConfig, normalizeGates } from '../plugin/scripts/lib/config.mjs';
+import { matchEnvironment, failingTests, rerunCommand } from '../plugin/scripts/lib/environment.mjs';
 import { scopeGate, quote, under, changedFiles } from '../plugin/scripts/lib/scope.mjs';
 import { treeKey, matchingEvidence, readEvidence, toolchain, fileModes, untrackedMode } from '../plugin/scripts/lib/gate-evidence.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
@@ -1147,4 +1148,158 @@ test('check-plan.mjs prints the commands run-gates.mjs --scoped runs for the sam
   const commands = (out, tag) => out.split('\n').filter((l) => l.startsWith(tag)).map((l) => l.replace(/^\S+\s+/, '').replace(/\s+\(.*\)$/, ''));
   assert.deepEqual(commands(planned.stdout, 'full').concat(commands(planned.stdout, 'related')), commands(ran.stdout, 'pass'));
   assert.deepEqual(commands(planned.stdout, 'skip'), commands(ran.stdout, 'skip').map((c) => c.replace(/\s+\(.*$/, '')));
+});
+
+test('environment signatures: each known cause is recognised, a real failure is not', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-envsig-'));
+  const sig = (out, action = 'full') => matchEnvironment(out, { root, action })?.name ?? null;
+  // FB-323: a fresh worktree with no node_modules.
+  assert.equal(sig("Error: Cannot find package 'vitest' imported from C:\\wt\\vitest.config.ts"), 'missing-dependency');
+  assert.equal(sig("src/a.ts(1,19): error TS2307: Cannot find module 'react' or its corresponding type declarations."), 'missing-dependency');
+  assert.equal(sig("'tsc' is not recognized as an internal or external command,\noperable program or batch file."), 'missing-tool');
+  assert.equal(sig('sh: 1: vitest: not found'), 'missing-tool');
+  // A relative import that doesn't resolve is the code's fault; so is a package that IS installed.
+  assert.equal(sig("error TS2307: Cannot find module './gone' or its corresponding type declarations."), null);
+  fs.mkdirSync(path.join(root, 'node_modules/react'), { recursive: true });
+  assert.equal(sig("error TS2307: Cannot find module 'react' or its corresponding type declarations."), null);
+  // FB-314: a running debug flowboard.exe locked target\debug.
+  assert.equal(sig('error: failed to remove file `target\\debug\\flowboard.exe`\nCaused by: Access is denied. (os error 5)'), 'locked-build-artifact');
+  // FB-320 round 3: Gates launched from a lowercase c: cwd.
+  const lower = " FAIL  src/a.test.ts\nTypeError: Cannot read properties of undefined (reading 'config')\n    at node_modules/vitest/dist/runners.js:12:3\n Test Files  no tests";
+  assert.equal(sig(lower), 'test-runner-did-not-start');
+  assert.equal(sig("TypeError: Cannot read properties of undefined (reading 'config')\n    at src/app.ts:3"), null, 'the app code reading a config is not the runner');
+  assert.equal(sig('Error: failed to find the runner'), 'test-runner-did-not-start');
+  assert.equal(sig('Error: [vitest-pool]: Failed to start forks worker'), 'test-runner-did-not-start');
+  // 0 tests collected, except in a related run (no test relates to the change: not the machine's fault).
+  assert.equal(sig('No test files found, exiting with code 1'), 'no-tests-collected');
+  assert.equal(sig('No test files found, exiting with code 1', 'related'), null);
+  assert.equal(sig(' FAIL  src/a.test.ts > adds\nAssertionError: expected 1 to be 2'), null);
+  assert.equal(sig('\x1b[31mNo test files found\x1b[39m'), 'no-tests-collected', 'colour codes are ignored');
+});
+
+test('failingTests and rerunCommand narrow a Gate to the tests that failed', () => {
+  const vitest = ' FAIL  src/a.test.ts > list > loads\n FAIL  src/a.test.ts > list > sorts\n FAIL  src/b.spec.tsx [ src/b.spec.tsx ]\n';
+  const v = failingTests(vitest);
+  assert.deepEqual(v.targets, ['src/a.test.ts', 'src/b.spec.tsx']);
+  assert.deepEqual(v.names, ['src/a.test.ts > list > loads', 'src/a.test.ts > list > sorts', 'src/b.spec.tsx']);
+  const cargo = failingTests('test db::tests::inserts ... ok\ntest db::tests::rolls_back ... FAILED\ntest api::tests::lists ... FAILED\n');
+  assert.deepEqual(cargo.targets, ['db::tests::rolls_back', 'api::tests::lists']);
+  assert.equal(failingTests('error: something else'), null);
+
+  const posix = 'linux';
+  assert.equal(rerunCommand('npx vitest run', v, posix), "npx vitest run 'src/a.test.ts' 'src/b.spec.tsx'");
+  assert.equal(rerunCommand('npm run test:run', v, posix), "npm run test:run -- 'src/a.test.ts' 'src/b.spec.tsx'");
+  assert.equal(rerunCommand('cargo test --manifest-path src-tauri/Cargo.toml', cargo, posix), 'cargo test --manifest-path src-tauri/Cargo.toml db::tests::rolls_back api::tests::lists');
+  assert.equal(rerunCommand('npx vitest related --run a.ts', v, posix), null, 'a related command is not narrowed by appending');
+  assert.equal(rerunCommand('npm run typecheck', null, posix), null);
+  assert.equal(rerunCommand('cargo clippy', cargo, posix), null, 'only `cargo test` is narrowed by names');
+});
+
+test('run-gates.mjs exits 3 on an environment failure and records no evidence', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-rungates-env-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  const ok = 'node -e "console.log(\'all good\')"';
+  const locked = 'node -e "console.error(\'Access is denied. (os error 5)\'); process.exit(1)"';
+  const later = 'node -e "console.log(\'never runs\')"';
+  const real = 'node -e "console.error(\' FAIL  src/a.test.ts > x\'); process.exit(1)"';
+  const setGates = (gates) => {
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates }));
+  };
+  const logFile = path.join(dir, '.git/factory/logs/FB-1/qa.log');
+  const run = () => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/run-gates.mjs'), logFile], { cwd: dir, encoding: 'utf8' });
+  setGates([ok, locked, later]);
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  let r = run();
+  assert.equal(r.status, 3);
+  assert.match(r.stdout, /^environment /m);
+  assert.match(r.stdout, /environment failure: locked-build-artifact\. .*close it/);
+  assert.ok(!r.stdout.includes('never runs') && !fs.readFileSync(logFile, 'utf8').includes('never runs'), 'the run stops at the environment failure');
+  assert.deepEqual(readEvidence(dir), {}, 'an exit 3 records no evidence, not even for the Gate before it');
+
+  // A failure with no signature is a real one: exit 1, unchanged.
+  setGates([real]);
+  r = run();
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^fail /m);
+});
+
+test('run-gates.mjs reruns failing tests once: a pass on rerun is flaky and records no evidence, a second failure is real', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-rungates-flaky-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  // A stand-in for vitest: the whole suite (no file argument) fails and names a test; handed that
+  // file alone it passes, unless ALWAYS_FAIL says the failure is real.
+  const runner = path.join(os.tmpdir(), `fake-vitest-${path.basename(dir)}.cjs`);
+  fs.writeFileSync(
+    runner,
+    `const files = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+if (files.length === 0 || process.env.ALWAYS_FAIL === '1') { console.log(' FAIL  src/a.test.ts > flaky one'); process.exit(1); }
+`,
+  );
+  // `vitest` must appear in the command for the rerun to be narrowed.
+  const cmd = `node "${runner}" --reporter=vitest`;
+  const other = 'node -e "console.log(1)"';
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates: [cmd, other] }));
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  const log = path.join(dir, '.git/factory/logs/FB-1/qa.log');
+  const run = (env = {}) => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/run-gates.mjs'), log], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
+
+  let r = run();
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /^flaky .*src\/a\.test\.ts > flaky one/m);
+  assert.match(r.stdout, /flaky tests \(failed, then passed alone on rerun\): src\/a\.test\.ts > flaky one/);
+  assert.deepEqual(Object.keys(readEvidence(dir)), [other], 'a flaky pass proves nothing about the tree; the other Gate still does');
+  assert.match(fs.readFileSync(log, 'utf8'), /rerun the failing tests once/);
+
+  fs.rmSync(path.join(dir, '.git/factory/gates'), { recursive: true });
+  r = run({ ALWAYS_FAIL: '1' });
+  assert.equal(r.status, 1, 'it failed again on rerun: a real failure');
+  assert.match(r.stdout, /^fail /m);
+  assert.ok(!r.stdout.includes('flaky tests'));
+});
+
+test('prepare-tree.mjs stops without factory.json on the branch and installs when node_modules is missing or stale', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-prepare-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(dir, 'README.md'), 'x');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  const prepare = () => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/prepare-tree.mjs')], { cwd: dir, encoding: 'utf8' });
+
+  let r = prepare();
+  assert.equal(r.status, 2);
+  assert.match(r.stdout, /No \.claude\/factory\.json on this branch/);
+
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates: [] }));
+  r = prepare();
+  assert.equal(r.status, 0, 'no package-lock.json: nothing to install');
+  assert.match(r.stdout, /^root: /m);
+  assert.match(r.stdout, /ready/);
+
+  // A lock file with no node_modules: `npm ci` runs (and fails here, on a lock npm can't use).
+  fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x","version":"1.0.0"}');
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{"name":"x","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"x","version":"1.0.0"}}}');
+  r = prepare();
+  assert.match(r.stdout, /node_modules is missing: npm ci/);
+  assert.equal(r.status, 0, r.stdout);
+
+  // Installed and newer than the lock: left alone. Older than the lock: installed again.
+  fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'node_modules/.package-lock.json'), '{}');
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(path.join(dir, 'node_modules/.package-lock.json'), later, later);
+  assert.match(prepare().stdout, /node_modules is current/);
+  const earlier = new Date(Date.now() - 60_000);
+  fs.utimesSync(path.join(dir, 'node_modules/.package-lock.json'), earlier, earlier);
+  assert.match(prepare().stdout, /older than package-lock\.json: npm ci/);
 });

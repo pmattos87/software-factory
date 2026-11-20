@@ -63,6 +63,14 @@ git -c user.name=pmattos-pr-review-agent -c user.email=345377693+pmattos-pr-revi
 
 Do this on a resumed Run too: a dependency that gained commits since brings them in, and one already merged is a no-op. A `done` dependency is already in production; skip it. Stop the Run (`run_stop` on a Story already in `building`, otherwise just stop and report) when a dependency has no Feature branch yet (it has to be built first), is `canceled`, or its merge conflicts: `git merge --abort` and report the files.
 
+**Then prepare the tree**, on a new or resumed Run and in every worktree, from the working directory you build in:
+
+```
+node "<this skill's base directory>/../../scripts/prepare-tree.mjs"
+```
+
+It runs `npm ci` when `node_modules` is missing or older than `package-lock.json`, and checks that `.claude/factory.json` exists on the branch. Exit 2 (no `factory.json` on the branch: it names the fix) or exit 1 (`npm ci` failed) stops the Run before anything is built: stop and report it (`run_stop` on a Story already in `building`). It prints `root: <path>`: run every Gate command, `run-gates.mjs` and `check-plan.mjs` from that root as printed, never from a hand-typed path (a lowercase drive letter once made vitest load no tests).
+
 On a new Run, `story_move` the Story to `building` now.
 
 ## 4. Build each Subtask
@@ -77,6 +85,10 @@ In plan order, for each Subtask not `done` or `canceled` except the `Simplify` S
 6. **Pass**: commit the Subtask (below), `subtask_move` it to `done`, and go on to the next one.
    **Fail, round 1**: hand the same Subtask back to the builder: a new `subtask_handoff`, then build again with QA's findings attached, then Verify as round 2.
    **Fail, round 2**: stop. `run_stop` with `<KEY>: Verify failed twice: <QA's reason>`, and go to step 10. The 2-round limit is the rule; don't grant a third round, and don't fix it yourself.
+
+**An environment failure is not a round.** When `run-gates.mjs` exits 3, QA returns `verdict: environment` with the signature and its fix (`reason` names it): a Gate failed for the machine's sake, not the code's. Don't record `subtask_verify` and don't call the builder. Apply the fix the signature names (`npm ci`; for a locked build artifact, ask Pedro to close the app that holds it and wait), then run the same round's Verify again, `verify_start` included (the same round number: the earlier start has no result, which is not a round). A second environment failure in the same round stops the Run: `run_stop` with `<KEY>: Environment failure: <signature>`, and go to step 10. Round counts after a restart start over as for any stop.
+
+**A flaky test** is a Gate's failing test that passed on its rerun: `run-gates.mjs` passes that Gate marked `flaky` and QA lists the tests in `flaky:`. Keep every such test name for the report (step 10); a flaky pass records no evidence, so the PR gate runs that Gate itself.
 
 A round is one build plus one Verify. Rounds count from 1 for each Subtask, and again from 1 after a restart. On a resumed Run, count them from `story_trail`: the Subtask's Verify results since the Run's last restart (or its start), so a new session never grants a third round. A Verify start with no result after it (a session that ended during QA) is not a round: call `verify_start` again for the same round.
 
@@ -141,6 +153,7 @@ No `--scoped`. `<round>` is 1, or the next number free in that directory when a 
   ```
 
   Build it as in step 4, items 1 to 4, handing the builder the failing Gates and the log. Verify it as in step 4, items 5 and 6, except that QA gets the full command: the one above with no `--scoped` and the log `<subtask-key>-qa-<round>.log`. A pass commits it and moves it to `done`; a pass of the full Gates in that Verify is this step's pass, so go on to Docs. A second failed Verify stops the Run: `run_stop` with `<KEY>: Full Gates failed twice: <QA's reason>`, and go to step 10.
+- **Exit 3**: a Gate failed for an environment reason (it names the signature and the fix, and records no evidence). It isn't a failure of the code: apply the fix and run the full Gates again; this costs no `Full Gates failures` Subtask. A second exit 3 in a row stops the Run: `run_stop` with `<KEY>: Environment failure: <signature>`, and go to step 10.
 - **Exit 2**: no config to run; stop and report it.
 
 On a resumed Run, an open `Full Gates failures` Subtask is built from where it stands, as above. With a `done` one, run the full Gates again: a pass goes on to Docs, a failure stops the Run (the 2-round rule already holds for that Subtask's fixes).
@@ -159,7 +172,7 @@ Run the `factory:integrate` skill on the Story. It pushes the branch, opens the 
 
 ## 10. Report
 
-End with the Story key and where it stands (in `integrated_tests`, Pedro's test is on the integration branch, with `environments.integration` on a Client project, as `factory:integrate` says), then one line per Subtask: key, builder, rounds, verdict, then one line per Review round: verdict and comment link, and Codex's suggestions for Pedro to file or drop. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
+End with the Story key and where it stands (in `integrated_tests`, Pedro's test is on the integration branch, with `environments.integration` on a Client project, as `factory:integrate` says), then one line per Subtask: key, builder, rounds, verdict, then one line per Review round: verdict and comment link, and Codex's suggestions for Pedro to file or drop. **Flaky tests**: when any test failed and then passed on rerun, list each name in the report and post them as one `story_comment` on the Story, for Pedro to file as bugs. For a stopped Run: the stop reason, QA's or the builder's findings in full, and what Pedro needs to decide. Uncommitted changes from the failed Subtask stay in the working tree for him to read; say so.
 
 ## Guardrails
 
