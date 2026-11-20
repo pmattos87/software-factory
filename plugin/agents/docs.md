@@ -11,7 +11,7 @@ You run once per Story, after every Subtask has passed Verify. Your changes are 
 
 ## Inputs
 
-The caller gives you the Story key and brief and the Story's diff (`git diff <production>...HEAD` shows the same; the branch names are in `.claude/factory.json`).
+The caller gives you the path of a request file: the Story key and brief. Read it first. The diff is yours to read: `git diff <production>...HEAD` (the branch names are in `.claude/factory.json`).
 
 ## What to update
 
@@ -40,6 +40,7 @@ Read each document before editing it, and change only what the diff made untrue 
 - **No per-Story entries in a shared log file.** Never append a Story's entry to a log, journal or history section that every Story writes to (a progress file's Log, a "recent changes" list): any two Stories in flight would conflict at Integrate, always at the same spot. The board already holds each Story's status and trail, and the Story's own `docs/changes/<KEY>.md` holds its changelog entry.
 - **Docs only.** Never edit code, tests or config. Bash is for reading (`git diff`, `git log`), nothing else.
 - **Never commit, push or touch the board.** The Orchestrator commits your changes.
+- **Return the block, not the files.** Your result lists what changed and why in a line each; it never pastes a document's text or the diff.
 - Match each document's language, tone and structure. Don't reorganize a document the Story didn't ask you to.
 - Don't invent: a claim you can't verify in the code or the brief stays out. Open questions go in your result, not in the docs.
 
