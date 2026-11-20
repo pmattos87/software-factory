@@ -1112,3 +1112,39 @@ test('changedFiles is the working tree against HEAD plus untracked, ignored file
   fs.writeFileSync(path.join(dir, 'out/built.js'), 'b');
   assert.deepEqual(changedFiles(dir), ['a.ts', 'gone.ts', 'new.ts', 'staged.ts']);
 });
+
+test('check-plan.mjs prints the commands run-gates.mjs --scoped runs for the same changes', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-checkplan-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@example.com');
+  git(dir, 'config', 'user.name', 'Test');
+  const scripts = (name) => path.resolve(import.meta.dirname, `../plugin/scripts/${name}`);
+  const plan = () => spawnSync('node', [scripts('check-plan.mjs')], { cwd: dir, encoding: 'utf8' });
+  assert.equal(plan().status, 2, 'no config');
+
+  const gates = [
+    'node -e "console.log(1)"',
+    { run: 'node -e "console.log(2)"', paths: ['api'] },
+    { run: 'node -e "console.log(3)"', paths: ['src'], related: 'node -e "console.log(4)" -- {files}' },
+  ];
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.mkdirSync(path.join(dir, 'src'));
+  fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'FB', gates }));
+  fs.writeFileSync(path.join(dir, 'src/a.ts'), 'a');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  fs.writeFileSync(path.join(dir, 'src/a.ts'), 'a2');
+
+  const planned = plan();
+  assert.equal(planned.status, 0);
+  const lines = planned.stdout.trim().split('\n');
+  assert.equal(lines[0], 'check plan: changed files 1 file(s)');
+  assert.deepEqual(lines.slice(1).map((l) => l.split(' ')[0]), ['full', 'skip', 'related']);
+  assert.ok(!lines.join('\n').includes('--lib'));
+
+  // What QA's scoped Verify then runs is the plan: the same commands, the same skip.
+  const ran = spawnSync('node', [scripts('run-gates.mjs'), '--scoped', path.join(dir, 'qa.log')], { cwd: dir, encoding: 'utf8' });
+  const commands = (out, tag) => out.split('\n').filter((l) => l.startsWith(tag)).map((l) => l.replace(/^\S+\s+/, '').replace(/\s+\(.*\)$/, ''));
+  assert.deepEqual(commands(planned.stdout, 'full').concat(commands(planned.stdout, 'related')), commands(ran.stdout, 'pass'));
+  assert.deepEqual(commands(planned.stdout, 'skip'), commands(ran.stdout, 'skip').map((c) => c.replace(/\s+\(.*$/, '')));
+});
