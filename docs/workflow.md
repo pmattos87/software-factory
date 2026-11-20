@@ -31,12 +31,12 @@ Shipped in [plugin/agents/](../plugin/agents/), invoked as `factory:<name>` by `
 | Agent | Stage | Job | Tier |
 |---|---|---|---|
 | [`task-splitter`](../plugin/agents/task-splitter.md) | Plan | Proposes a Story's Subtasks; never writes | opus |
-| [`implementer`](../plugin/agents/implementer.md) | Build | Builds a Subtask with its tests when no Specialist fits; runs scoped checks, not the full Gates | sonnet |
+| [`implementer`](../plugin/agents/implementer.md) | Build | Builds a Subtask with its tests when no Specialist fits; runs the check plan, not the full Gates | sonnet |
 | [`qa`](../plugin/agents/qa.md) | Build, per Subtask | Verify: the Gates (scoped to the Subtask's change, or full when the caller says) plus the definition of done; may strengthen tests, never production code | opus |
 | [`simplify`](../plugin/agents/simplify.md) | Build, per Story | Simplifies the code the Story wrote, without changing behavior, before Docs and Review | sonnet |
 | [`docs`](../plugin/agents/docs.md) | Build, per Story | Keeps the project's working documents true to the Story's diff | sonnet |
 
-None of them touches the board, commits or pushes: each ends with a fixed result block, and the Orchestrator records the trail and commits. Builders run the checks scoped to their change. QA runs the Gates at each Subtask's Verify, scoped to what the Subtask changed (a Gate whose `paths` saw no change is skipped, one with a `related` form runs on the changed files); the Orchestrator runs every Gate in full once per Story, after Simplify. Every agent that runs a Gate or test writes its full output and exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/` before filtering it. A project may change an agent's tier in `.claude/factory.json` with a stated reason ([Guardrails](guardrails.md#per-project-config)).
+None of them touches the board, commits or pushes: each ends with a fixed result block, and the Orchestrator records the trail and commits. Builders run the check plan: [check-plan.mjs](../plugin/scripts/check-plan.mjs) prints, per Gate, the command QA's scoped Verify would run for their change (`related` on the changed files, `full` where a Gate has no related form or a fallback applies, `skip` where nothing changed under its paths), and a whole suite runs only when the plan says `full`. QA runs the Gates at each Subtask's Verify, scoped to what the Subtask changed (a Gate whose `paths` saw no change is skipped, one with a `related` form runs on the changed files); the Orchestrator runs every Gate in full once per Story, after Simplify. Every agent that runs a Gate or test writes its full output and exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/` before filtering it. A project may change an agent's tier in `.claude/factory.json` with a stated reason ([Guardrails](guardrails.md#per-project-config)).
 
 ## The path of a Story
 

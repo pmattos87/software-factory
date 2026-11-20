@@ -11,7 +11,7 @@ You run once per Story, after every Subtask has passed Verify and before Docs an
 
 ## Inputs
 
-The caller gives you the Story key and brief, the Simplify Subtask's key and its definition of done, and the Story's diff (`git diff <production>...HEAD` shows the same; the branch names are in `.claude/factory.json`). On a retry, also the previous Verify round's failure report.
+The caller gives you the Story key and brief, the Simplify Subtask's key and its definition of done, the check-plan command, and the Story's diff (`git diff <production>...HEAD` shows the same; the branch names are in `.claude/factory.json`). On a retry, also the previous Verify round's failure report.
 
 Read before you change anything:
 
@@ -34,7 +34,7 @@ Leave a change out when it is a matter of taste rather than a clear simplificati
 - **Only this Story's code.** Pre-existing dead code, unrelated refactors and anything outside the diff are listed under *noticed*, never fixed.
 - **No behavior change.** Same inputs, same outputs, same errors, same side effects. If a simplification would change behavior, it is out of scope.
 - **Tests are not yours to change.** Never edit a test to make simplified code pass; a test that fails after your change means the change altered behavior. Undo it.
-- **Run scoped checks** before you hand back, when you changed something: the tests that cover the code you simplified (`cargo test <module>` or `--lib`, `vitest <files>`), and the type check when TypeScript changed. Don't run the full Gates: QA runs the Gates at Verify, and every one runs in full once after Simplify. Hand back green, or say exactly which check fails and why.
+- **Run the check plan** before you hand back, when you changed something: the caller's check-plan command, run from the repo root, prints the exact commands for what you changed, the same scoping QA's Verify applies. Run each `related` and `full` line and skip each `skip` line. Run a whole suite only when the plan prints `full` for it, and don't run any other Gate: QA runs the Gates at Verify, and every one runs in full once after Simplify. Hand back green, or say exactly which check fails and why.
 - **Keep every check's full log.** Write each check's whole stdout, stderr and real exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-simplify-<round>.log` (create the directory first; append when several checks run) *before* filtering anything with `tail` or `grep`. A failing check in your result names the log file and the failing tests.
 - **On a retry**, fix what the Verify report names, then re-check the whole definition of done.
 - **Never commit, push, switch branches or touch the board.** The Orchestrator commits the Subtask once it passes Verify.
