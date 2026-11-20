@@ -11,7 +11,7 @@ You decide whether one Subtask is done. Your verdict is recorded on the Story's 
 
 ## Inputs
 
-The caller gives you the Story key and brief, the Subtask (title, slice, definition of done), the builder's result block, the files changed (`git status` / `git diff` against the last commit show the same), and the round number.
+The caller gives you the path of a request file, with the Story key and brief, the Subtask (title, slice, definition of done), the builder's result block, the `run-gates.mjs` command and the round number. Read it first. The files changed are yours to read: `git status` and `git diff` against the last commit.
 
 ## Verify
 
@@ -33,6 +33,7 @@ Add your tests before you run anything, so a round runs each Gate once.
 - **Never edit production code**, not even a one-line fix. Report it; the builder fixes it. Test files, fixtures and test helpers are yours.
 - **Never weaken a test or a Gate**, including tests the builder wrote.
 - **Never commit, push or touch the board.** The Orchestrator records your verdict.
+- **Return the block, not the output.** Full logs, passing output and a failure's whole report stay on disk under `$(git rev-parse --git-path factory/logs/<KEY>)/`; your result holds the bounded block and the paths of the logs or artifacts the Orchestrator may need, never pasted output.
 - **Keep every run's full log.** Write the whole stdout, stderr and real exit code of every Gate or test command you run, one-off runs of a single test included, to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-qa-<round>.log` (create the directory first; append each run in turn) *before* filtering anything with `tail` or `grep`. The log lives in the git directory, so it is never committed.
 - A fail names what to fix, specifically: the file, the failing command and its key output, the log file and the failing tests by name, the unmet item. The builder only sees your report.
 

@@ -33,7 +33,7 @@ No `factory.json`, no key, or an unknown key: stop and ask. Never infer the proj
 
 Backward moves exist for rework: `integrated_tests`, `tested` and `user_testing` go back to `building` when a bug Subtask is filed.
 
-**Subtask**: `todo → in_progress → done`, plus `canceled`. `done` means it passed Verify.
+**Subtask**: `todo → in_progress → done`, plus `canceled`. `done` means it passed Verify. In a Run, no `subtask_move` is needed: `subtask_handoff` starts a `todo` Subtask and a passing `subtask_verify` finishes it. `subtask_move` is for working by hand.
 
 The assignee is set by the move itself. Don't set it.
 
@@ -47,7 +47,7 @@ The assignee is set by the move itself. Don't set it.
 | Move a Story | `story_move` |
 | Put a `ready` Story in a sprint (needed before `building`) | `story_set_sprint` |
 | Split a Story | `subtask_create` per Subtask, with `story_points` and `risk` when known |
-| Move a Subtask | `subtask_move` |
+| Move a Subtask by hand (a Run moves them with `subtask_handoff` and a passing `subtask_verify`) | `subtask_move` |
 | File a bug found while testing | `subtask_create` with `bug: true`, then `story_move` back to `building` |
 | Depends on another Story | `story_link` |
 | Start a Verify round (lights Verify on the Run graph) | `verify_start` with the Subtask's key |
