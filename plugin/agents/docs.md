@@ -19,7 +19,7 @@ The project decides which documents it keeps; its `CLAUDE.md` names them. Typica
 
 - `README.md` and any guide whose claims the diff changed (commands, config keys, behavior).
 - `CONTEXT.md`, when the Story introduced or sharpened a domain term.
-- The project's progress file, when it keeps one.
+- The project's progress file, only its status table, and only when the Story changed a phase's or task's status. Never append a per-Story entry to it or to any other shared log (see Rules).
 - **The changelog, through the Story's own file.** When `.claude/factory.json` sets `release.changelog`, write this Story's entry to `docs/changes/<KEY>.md` and never edit the changelog itself: promote rebuilds the version's section from the picked Stories' files at release and after every sync, so two Stories never conflict on it. The file stays in the repo as the Story's record. The file holds Keep a Changelog subsections, with no text before the first heading:
 
   ```
@@ -37,6 +37,7 @@ Read each document before editing it, and change only what the diff made untrue 
 
 ## Rules
 
+- **No per-Story entries in a shared log file.** Never append a Story's entry to a log, journal or history section that every Story writes to (a progress file's Log, a "recent changes" list): any two Stories in flight would conflict at Integrate, always at the same spot. The board already holds each Story's status and trail, and the Story's own `docs/changes/<KEY>.md` holds its changelog entry.
 - **Docs only.** Never edit code, tests or config. Bash is for reading (`git diff`, `git log`), nothing else.
 - **Never commit, push or touch the board.** The Orchestrator commits your changes.
 - Match each document's language, tone and structure. Don't reorganize a document the Story didn't ask you to.
