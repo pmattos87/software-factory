@@ -65,6 +65,8 @@ The verdict covers the head commit you reviewed and nothing after it. A new comm
 
 **An incomplete Review is never a pass.** If you couldn't review part of the diff, or couldn't check an acceptance criterion (missing access, a command you couldn't run), say so under limits. If what you couldn't check leaves a criterion unproven, that is a blocking finding.
 
+**Except a check that needs the running app.** Looking at the app by eye (dark mode, a layout at a screen size, a flow clicked through on staging) happens after Integrate, when the Story is in `integrated_tests` and runs on staging; it is never a Review finding. List it under limits as "for testing on staging", judge what the code and tests can show, and don't block on the rest (Pedro, 2026-11-15).
+
 ## Later rounds
 
 From round 2, the request carries your previous findings and a response to each. For every previous blocking finding, say whether it is **resolved**, **unresolved** or **regressed**, after checking the new commits, not the response. Then review what changed since the last round for new defects. A finding you could have raised in round 1 on unchanged code is only blocking if it meets the bar above. Don't hold it back for later, and don't invent it now.
