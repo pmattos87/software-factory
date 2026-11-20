@@ -58,6 +58,14 @@ Codex (`gpt-6-astra`, high effort) reviews each Story once, after Docs and befor
 - **A failed round 2** stops the Run for Pedro, with the findings linked.
 - **Codex unavailable** (missing, failing, timing out, or answering with no usable verdict) stops the Run with "Review waits". There is no Claude fallback.
 
+### Environment failures and flaky tests
+
+A Gate that fails because of the machine, not the code, must not cost a builder round or stop the Run:
+
+- **The tree is prepared first.** At the start of a new or resumed Run, in every worktree, [prepare-tree.mjs](../plugin/scripts/prepare-tree.mjs) runs `npm ci` when `node_modules` is missing or older than `package-lock.json`, and stops the Run before anything is built when `.claude/factory.json` is missing on the branch. Every Gate runs from the repo root as git reports it ([run-gates.mjs](../plugin/scripts/run-gates.mjs) resolves it itself), never a hand-typed path.
+- **An environment failure exits 3**, not 1. `run-gates.mjs` matches a failing Gate's output against the signatures in [environment.mjs](../plugin/scripts/lib/environment.mjs) (no tests collected, a bare package missing from `node_modules`, a missing tool, a locked build artifact, a test runner that never started; one more entry to add a signature), stops, names the signature and its fix, and records no evidence. QA reports `verdict: environment`; the Orchestrator applies the fix, records no Verify round, doesn't call the builder, and reruns the same round's Verify. A second environment failure in the same round stops the Run with the signature as the reason.
+- **A flaky test passes on rerun.** When a test Gate fails, `run-gates.mjs` reruns only the failing tests once (vitest files, cargo test names). All pass: the Gate passes marked `flaky`, naming the tests, and records no evidence (it proves nothing about the whole tree). Any fails again: a real failure. The Run report and a comment on the Story list each flaky test, for Pedro to file as a bug.
+
 ### When a Run stops
 
 A Subtask that fails Verify twice, a builder that is blocked on a decision, a Review that fails twice or can't run, or a failure at Integrate stops the Run (`run_stop`): the Story stays in `building`, flagged, with the reason on its trail, and the failed Subtask's changes stay uncommitted for Pedro to read. He resolves it (rewords the brief, splits the Subtask again, fixes the cause) and asks for the Run again with "restart". Rounds count again from 1 after a restart, never after a mere new session.

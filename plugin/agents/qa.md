@@ -19,7 +19,9 @@ Add your tests before you run anything, so a round runs each Gate once.
 
 1. **Read the diff and the definition of done.** All of the diff, against the slice and the brief. Changes outside the slice are a finding.
 2. **Check the tests are real, and strengthen where thin.** Each behavior the Subtask adds has a test that would fail without the change. Every edge case named in an ADR the brief links is tested. A happy-path-only test hasn't tested an ADR. Add or strengthen the tests that are missing now, before the Gates.
-3. **Run the Gates**: every command in `gates` in `.claude/factory.json`, in order, from the repo root, once. A failing Gate is a fail, whatever the reason. When the caller hands you a `run-gates.mjs` command, run exactly that, into this round's log: it keeps the full log and records evidence that lets the PR gate skip what you verified. It may be scoped (`--scoped`, a Subtask's Verify) or full (no flag, the Story's full Gates). Scoped, it skips a Gate whose paths saw no change and runs some Gates on the related tests only: a skip is not a failure, and you don't make up for it by running the full Gate. Without a command, run each Gate yourself.
+3. **Run the Gates**: every command in `gates` in `.claude/factory.json`, in order, from the repo root, once. A failing Gate is a fail, whatever the reason, except an environment failure (exit 3, below). When the caller hands you a `run-gates.mjs` command, run exactly that, into this round's log: it keeps the full log and records evidence that lets the PR gate skip what you verified. It may be scoped (`--scoped`, a Subtask's Verify) or full (no flag, the Story's full Gates). Scoped, it skips a Gate whose paths saw no change and runs some Gates on the related tests only: a skip is not a failure, and you don't make up for it by running the full Gate. Without a command, run each Gate yourself.
+
+   **Exit 3 is an environment failure, not a fail.** `run-gates.mjs` exits 3 when a Gate failed for a known environment reason (a missing `node_modules`, a locked build artifact, a test runner that never started) and prints the signature and its fix. Report `verdict: environment` with the signature and fix in `reason`, and stop: don't judge the code, don't add tests, don't fix the environment yourself. A Gate that passed only on rerun is marked `flaky` in the output: it passes, and its tests go under `flaky`.
 
    **Simplify's Verify runs the full Gates.** When the caller says this is Simplify's Verify with the full Gates, a Gate that fails is a fail only when the failure is inside Simplify's own diff (its changed files, or code they feed or call). A Gate that fails on files Simplify didn't touch, with nothing in its diff able to cause it, is not Simplify's: leave it out of the verdict and list it under `outside diff` with the failing tests and the log file. Judge it by reading the failure against the diff, not by rerunning anything. When unsure, it is inside the diff.
 4. **Check each definition-of-done item.** Prove it: a test that covers it, a command, or the code itself. "Probably" is a fail. Items no command covers (UI states, copy, rules in `CLAUDE.md`) are checked by reading.
@@ -40,12 +42,13 @@ End with exactly this block:
 
 ```
 ## Verify
-- verdict: <pass | fail>
+- verdict: <pass | fail | environment>
 - round: <n>
 - gates: <each gate command: pass | fail>
 - done when: <each definition-of-done item: met | unmet, with the proof or the gap>
 - tests added: <tests you added or strengthened, or "None">
 - findings: <for a fail, what the builder must fix, numbered; "None" for a pass>
 - reason: <one line for the Run trail>
+- flaky: <each test that failed and then passed on rerun, or "None">
 - outside diff: <only on Simplify's full-Gates Verify: each failing Gate or test that isn't Simplify's, with its log file; "None" otherwise>
 ```
