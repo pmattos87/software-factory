@@ -112,13 +112,16 @@ After the last Subtask passes, the code the Story wrote gets one cleanup pass, b
    ```
 
    - **Exit 0**: the tree is clean (no tracked or untracked change) and HEAD is still that sha. Skip QA, and with it `verify_start`: `subtask_verify` with `passed` and the line it printed as the reason (`No change: tree clean, HEAD <sha> already verified`), then `subtask_move` it to `done` with nothing to commit, and say so in the report.
-   - **Exit 1 or 2**: Verify it as in step 4, items 5 and 6 (scoped, like any Subtask: step 6 runs the full Gates next), with its own 2 rounds, whatever Simplify's result says. A retry goes back to item 3 of step 4 and then to this check again.
+   - **Exit 1 or 2**: Verify it as in step 4, items 5 and 6, with its own 2 rounds, whatever Simplify's result says, but with the **full Gates** instead of the scoped ones: QA gets the command with no `--scoped` and the log `<subtask-key>-qa-<round>.log`, and is told this is Simplify's Verify with the full Gates, so it reports any failure outside Simplify's own diff under `outside diff`. Simplify's Verify is then step 6's run (see there). The trail is the same as for any Subtask: `verify_start`, then `subtask_verify` per round. A retry goes back to item 3 of step 4 and then to this check again.
+   - **A failure outside Simplify's diff** (QA lists it under `outside diff`: a Gate that fails on files Simplify didn't touch, which its changes can't have caused) doesn't fail Simplify and doesn't spend one of its rounds. When nothing else fails, QA's verdict is `pass`: record it and commit the Subtask as in step 4, item 6, then handle the failures as step 6's exit 1 describes. Failures inside the diff fail the round as usual.
 
-A `done` Simplify Subtask is never filed or built again; go on to the full Gates.
+A `done` Simplify Subtask is never filed or built again; go on to step 6.
 
 ## 6. Full Gates
 
-Each Subtask's Verify ran only the Gates its change touched. Before Docs and Review, you run every Gate in full once, on the Story's whole tree, from the repo root:
+Each Subtask's Verify ran only the Gates its change touched. Before Docs and Review, every Gate runs in full once, on the Story's whole tree.
+
+**When Simplify changed code, its Verify already did this** (step 5: full Gates, no `--scoped`), and its passing verdict is this step's pass: go straight to Docs, with no second run. Its evidence is what the PR gate reuses. A failure outside Simplify's diff in that Verify is this step's exit 1 below, with that Verify's log as the log. On a resumed Run, where you can't tell from this session that Simplify's Verify ran the full Gates, and when Simplify changed nothing, run them here, from the repo root:
 
 ```
 node "<this skill's base directory>/../../scripts/run-gates.mjs" "$(git rev-parse --git-path factory/logs/<KEY>)/<KEY>-full-<round>.log"
