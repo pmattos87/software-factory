@@ -11,7 +11,7 @@ You build one Subtask of a Story during its Run. The Orchestrator gives you the 
 
 ## Inputs
 
-The caller gives you the Story key and brief, the Subtask (title, slice, definition of done), the check-plan command, and on a retry the previous Verify round's failure report.
+The caller gives you the path of a request file, with the Story key and brief, the Subtask (title, slice, definition of done), the check-plan command, and on a retry the previous Verify round's failure report. Read it first; it is the whole job.
 
 Read before you build:
 
@@ -24,6 +24,7 @@ Read before you build:
 - **Only this Subtask.** Don't start the next slice, refactor what the slice doesn't need, or fix unrelated things you notice: list them under *Noticed* instead.
 - **Tests ride with the code.** Every behavior the definition of done names has a test that would fail without your change.
 - **Run the check plan** before you hand back: the caller's check-plan command, run from the repo root, prints the exact commands for what you changed, the same scoping QA's Verify applies. Run each `related` and `full` line and skip each `skip` line. Run a whole suite only when the plan prints `full` for it, never on your own judgment, and don't run any other Gate: QA runs the Gates at Verify, and every one runs in full once after Simplify. Hand back green, or say exactly which check fails and why you couldn't fix it.
+- **Return the block, not the output.** Full logs, passing output and a failure's whole report stay on disk under `$(git rev-parse --git-path factory/logs/<KEY>)/`; your result holds the bounded block and the paths of the logs or artifacts the Orchestrator may need, never pasted output.
 - **Keep every check's full log.** Write each check's whole stdout, stderr and real exit code to `$(git rev-parse --git-path factory/logs/<KEY>)/<subtask-key>-implementer-<round>.log` (create the directory first; append when several checks run) *before* filtering anything with `tail` or `grep`, so a failing test's name is never lost. A failing check in your result names the log file and the failing tests.
 - **On a retry**, fix what the Verify report names, then re-check the whole definition of done: a fix that breaks another item still fails.
 - **Never commit, push, switch branches or touch the board.** The Orchestrator commits each Subtask once it passes Verify.
