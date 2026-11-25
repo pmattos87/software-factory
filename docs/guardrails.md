@@ -72,7 +72,7 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `ci.install` | Commands Actions runs before the gates and build (dependency install, CI-only prep). A bun project (with `bun.lock`) gets bun set up by the workflow, so it lists only its install, e.g. `bun install --frozen-lockfile`. |
 | `agents` | Optional tier overrides for a Role agent or a Specialist: `model` as an alias (`opus`, `sonnet`, `haiku`) and the `reason`, both required. Used by `split` and `run`; checked by `check-specialists.mjs` ([Specialists](specialists.md)). |
 | `release.versionFiles` | Files that carry the project's version, all bumped together when a Release is cut: JSON files with a top-level `version` (`package.json`, `package-lock.json`, `tauri.conf.json`, `manifest.json`) and `Cargo.toml` (its `[package]` version). |
-| `release.assets.build` | Commands that build the files attached to the GitHub Release (installers, zips), from the release tag. Run locally, on Pedro's machine, since Actions is Linux-only. They start with the dependency install (`npm ci`), so the build matches the tag and not whatever the checkout had installed. |
+| `release.assets.build` | Commands that build the files attached to the GitHub Release (installers, zips), from the release tag. Run locally, on Pedro's machine, since Actions is Linux-only. They start with the dependency install (`npm ci`), so the build matches the tag and not whatever the checkout had installed. A project that ships no files (a web app) leaves `release.assets` out altogether: its GitHub Release is published with nothing attached. An `assets` key that names no files is still a mistake. |
 | `release.assets.files` | Glob patterns of the files those commands produce, relative to the repo root. `<version>` in a pattern is replaced by the Release's version. |
 | `release.assets.beta`, `release.assets.production` | Client projects: two sets, each `{ build, files }` as above, in place of the single one. A beta's pre-release carries only the beta set (the test installer). The production set is built only for the final Release, from the merge commit, after the client approved and Pedro merged. `check-release.mjs --client` requires both, and every `files` pattern must carry `<version>`, so it never matches an installer left from another version. An Internal project keeps the single `release.assets`, which is its production set. `release-assets.mjs <beta or production> <version>`, once the set's build ran, lists its files. |
 | `release.changelog` | Optional: the project's changelog file (e.g. `docs/CHANGELOG.md`, Keep a Changelog format). When set, the Docs agent writes each Story's entry to `docs/changes/<KEY>.md` instead of the changelog, and promote rebuilds the version's section from exactly the picked Stories' files at the cut and after every sync (`release-version.mjs changelog`). The files stay in the repo; entries from before the setting move once into `docs/changes/unreleased-v<version>.md`. `check-release.mjs` checks the file exists. |
@@ -132,6 +132,8 @@ jobs:
   factory:
     uses: pmattos87/software-factory/.github/workflows/pr-checks.yml@main
 ```
+
+The job that runs the project's gates and build moves the Factory's scripts out of the project's workspace before any project command runs, so a whole-repo lint or test glob (`eslint .`) never reaches them; a project needs no ignore entry for them.
 
 What runs depends on the PR's target branch:
 

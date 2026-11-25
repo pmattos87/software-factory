@@ -16,10 +16,12 @@ const assetSet = (raw) => (raw ? { build: raw.build ?? [], files: raw.files ?? [
 
 // The asset sets: `release.assets.beta` and `release.assets.production`, each
 // { build, files }. The old single `release.assets` { build, files } is the
-// production set, with no beta set (`single` is then true).
+// production set, with no beta set (`single` is then true). No `release.assets` at
+// all means the project ships no files (a web app, say): `none` is then true, and
+// promote publishes its GitHub Release with nothing attached (SF-152).
 export function assetSets(raw) {
-  if (raw && (raw.beta || raw.production)) return { single: false, beta: assetSet(raw.beta), production: assetSet(raw.production) };
-  return { single: true, beta: null, production: assetSet(raw ?? {}) };
+  if (raw && (raw.beta || raw.production)) return { single: false, none: false, beta: assetSet(raw.beta), production: assetSet(raw.production) };
+  return { single: true, none: raw == null, beta: null, production: assetSet(raw ?? {}) };
 }
 
 // A set's file patterns for one version: every `<version>` replaced by it.
