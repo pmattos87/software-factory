@@ -114,6 +114,9 @@ jobs:
         with:
           node-version: ${{ needs.plan.outputs.node }}
           cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
+      # A bun project (SF-151): bun on PATH for its ci.install and Gates.
+      - uses: oven-sh/setup-bun@v2
+        if: env.SKIP != 'true' && hashFiles('bun.lock', 'bun.lockb') != ''
       - uses: dtolnay/rust-toolchain@master
         if: env.SKIP != 'true' && needs.plan.outputs.rust != ''
         with: { toolchain: '${{ needs.plan.outputs.rust }}' }

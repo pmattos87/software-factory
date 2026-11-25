@@ -69,7 +69,7 @@ Checked by the PR gate and again in Actions ([conventions.mjs](../plugin/scripts
 | `ci.node`, `ci.rust` | Toolchain versions Actions sets up; omit what the project doesn't use. |
 | `ci.rustWorkspace` | Where the Cargo workspace is, for the Rust cache. |
 | `ci.apt` | Ubuntu packages Actions installs before the gates and build. |
-| `ci.install` | Commands Actions runs before the gates and build (dependency install, CI-only prep). |
+| `ci.install` | Commands Actions runs before the gates and build (dependency install, CI-only prep). A bun project (with `bun.lock`) gets bun set up by the workflow, so it lists only its install, e.g. `bun install --frozen-lockfile`. |
 | `agents` | Optional tier overrides for a Role agent or a Specialist: `model` as an alias (`opus`, `sonnet`, `haiku`) and the `reason`, both required. Used by `split` and `run`; checked by `check-specialists.mjs` ([Specialists](specialists.md)). |
 | `release.versionFiles` | Files that carry the project's version, all bumped together when a Release is cut: JSON files with a top-level `version` (`package.json`, `package-lock.json`, `tauri.conf.json`, `manifest.json`) and `Cargo.toml` (its `[package]` version). |
 | `release.assets.build` | Commands that build the files attached to the GitHub Release (installers, zips), from the release tag. Run locally, on Pedro's machine, since Actions is Linux-only. They start with the dependency install (`npm ci`), so the build matches the tag and not whatever the checkout had installed. |
