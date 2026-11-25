@@ -7,20 +7,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { quote } from './scope.mjs';
+import { installCommand } from './package-manager.mjs';
 
 // eslint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 export const stripAnsi = (s) => s.replace(ANSI, '');
 
 // The environment signatures. One entry per cause: `test(output, ctx)` is true
-// when the output shows it, `fix` is what the Orchestrator does about it. A new
-// signature is one more entry. ctx = { root, action } (action: 'full' | 'related').
+// when the output shows it, `fix` is what the Orchestrator does about it (a
+// string, or `fix(ctx)` when it names the project's install command, SF-151). A
+// new signature is one more entry. ctx = { root, action } (action: 'full' | 'related').
 export const SIGNATURES = [
   {
     name: 'no-tests-collected',
     // A related run with no related tests ends the same way and is not an environment problem.
     test: (out, { action }) => action !== 'related' && (/No test files found/i.test(out) || /^\s*Tests\s+no tests\s*$/m.test(out)),
-    fix: 'The test runner collected no tests: run the Gates from `git rev-parse --show-toplevel` as printed, and install dependencies (`npm ci`) if node_modules is missing.',
+    fix: ({ root }) =>
+      `The test runner collected no tests: run the Gates from \`git rev-parse --show-toplevel\` as printed, and install dependencies (\`${installCommand(root)}\`) if node_modules is missing.`,
   },
   {
     name: 'missing-dependency',
@@ -31,14 +34,14 @@ export const SIGNATURES = [
       const missing = (s) => !fs.existsSync(path.join(root, 'node_modules', ...s.split('/').slice(0, s.startsWith('@') ? 2 : 1)));
       return wanted.length > 0 && wanted.every((s) => bare(s) && missing(s));
     },
-    fix: 'A package is missing from node_modules: run `npm ci`.',
+    fix: ({ root }) => `A package is missing from node_modules: run \`${installCommand(root)}\`.`,
   },
   {
     name: 'missing-tool',
     test: (out) =>
       /'?(?:tsc|vitest|biome|eslint|prettier|vite)'? is not recognized as an internal or external command/i.test(out) ||
       /(?:^|[\s:])(?:tsc|vitest|biome|eslint|prettier|vite): (?:command )?not found/m.test(out),
-    fix: 'A tool is missing from node_modules/.bin: run `npm ci`.',
+    fix: ({ root }) => `A tool is missing from node_modules/.bin: run \`${installCommand(root)}\`.`,
   },
   {
     name: 'locked-build-artifact',
@@ -58,7 +61,9 @@ export const SIGNATURES = [
 // The first signature the output shows, or null: a real failure.
 export function matchEnvironment(output, ctx) {
   const out = stripAnsi(output);
-  return SIGNATURES.find((s) => s.test(out, ctx)) ?? null;
+  const s = SIGNATURES.find((sig) => sig.test(out, ctx));
+  if (!s) return null;
+  return { ...s, fix: typeof s.fix === 'function' ? s.fix(ctx) : s.fix };
 }
 
 // The tests a failed run names. Vitest: ` FAIL  src/a.test.ts > suite > name`

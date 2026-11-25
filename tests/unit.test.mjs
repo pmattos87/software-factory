@@ -18,6 +18,7 @@ import { git } from '../plugin/scripts/lib/git.mjs';
 import { checkNoop } from '../plugin/scripts/lib/noop.mjs';
 import { loadConfig, normalizeGates } from '../plugin/scripts/lib/config.mjs';
 import { matchEnvironment, failingTests, rerunCommand } from '../plugin/scripts/lib/environment.mjs';
+import { packageManager, installCommand } from '../plugin/scripts/lib/package-manager.mjs';
 import { scopeGate, quote, under, changedFiles } from '../plugin/scripts/lib/scope.mjs';
 import { treeKey, matchingEvidence, readEvidence, toolchain, fileModes, untrackedMode } from '../plugin/scripts/lib/gate-evidence.mjs';
 import { assembleChangelog, sortKeys } from '../plugin/scripts/lib/changelog.mjs';
@@ -1263,6 +1264,75 @@ if (files.length === 0 || process.env.ALWAYS_FAIL === '1') { console.log(' FAIL 
   assert.equal(r.status, 1, 'it failed again on rerun: a real failure');
   assert.match(r.stdout, /^fail /m);
   assert.ok(!r.stdout.includes('flaky tests'));
+});
+
+test('packageManager reads the lock file: npm, bun, npm when both, none without one (SF-151)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-pm-'));
+  assert.equal(packageManager(dir), null);
+  assert.equal(installCommand(dir), 'npm ci', 'no lock file: the fix still names npm ci');
+  fs.writeFileSync(path.join(dir, 'bun.lockb'), '');
+  assert.equal(packageManager(dir).name, 'bun', 'the binary bun lock counts too');
+  fs.writeFileSync(path.join(dir, 'bun.lock'), '{}');
+  const bun = packageManager(dir);
+  assert.equal(bun.name, 'bun');
+  assert.equal(bun.lock, path.join(dir, 'bun.lock'));
+  assert.equal(bun.install, 'bun install --frozen-lockfile');
+  assert.equal(bun.stamp, null, 'bun writes no install marker: node_modules is the stamp');
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), '{}');
+  const npm = packageManager(dir);
+  assert.equal(npm.name, 'npm', 'npm wins when both lock files exist');
+  assert.equal(npm.stamp, path.join(dir, 'node_modules', '.package-lock.json'));
+  assert.equal(installCommand(dir), 'npm ci');
+});
+
+test('environment fixes name the project install command: bun in a bun project (SF-151)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-envbun-'));
+  const fix = (out) => matchEnvironment(out, { root, action: 'full' })?.fix;
+  assert.match(fix("Error: Cannot find package 'vitest' imported from x.ts"), /run `npm ci`/);
+  fs.writeFileSync(path.join(root, 'bun.lock'), '{}');
+  assert.match(fix("Error: Cannot find package 'vitest' imported from x.ts"), /run `bun install --frozen-lockfile`\./);
+  assert.match(fix('sh: 1: tsc: not found'), /run `bun install --frozen-lockfile`\./);
+  assert.match(fix('No test files found, exiting with code 1'), /\(`bun install --frozen-lockfile`\)/);
+  assert.equal(typeof fix('Access is denied. (os error 5)'), 'string', 'a fixed-text fix stays a string');
+});
+
+test('prepare-tree.mjs runs bun install in a bun project, and treats node_modules as its stamp (SF-151)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-prepare-bun-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/factory.json'), JSON.stringify({ boardKey: 'AT', gates: [] }));
+  const prepare = () => spawnSync('node', [path.resolve(import.meta.dirname, '../plugin/scripts/prepare-tree.mjs')], { cwd: dir, encoding: 'utf8' });
+  const modules = path.join(dir, 'node_modules');
+  const hasBun = spawnSync('bun --version', { shell: true }).status === 0;
+
+  if (!hasBun) {
+    fs.writeFileSync(path.join(dir, 'bun.lock'), '{}');
+    const r = prepare();
+    assert.match(r.stdout, /node_modules is missing: bun install --frozen-lockfile/);
+    assert.equal(r.status, 1, 'no bun on this machine: the install fails and the Run stops');
+    assert.match(r.stdout, /bun install --frozen-lockfile failed/);
+    return;
+  }
+  // A real lock, from a local package (no network): bun deletes the lock of a project with no packages.
+  fs.mkdirSync(path.join(dir, 'y'));
+  fs.writeFileSync(path.join(dir, 'y/package.json'), '{"name":"y","version":"1.0.0"}');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x","version":"1.0.0","dependencies":{"y":"file:./y"}}');
+  assert.equal(spawnSync('bun install', { cwd: dir, shell: true }).status, 0);
+  fs.rmSync(modules, { recursive: true, force: true });
+
+  let r = prepare();
+  assert.match(r.stdout, /node_modules is missing: bun install --frozen-lockfile/);
+  assert.equal(r.status, 0, r.stdout);
+  assert.ok(fs.existsSync(path.join(modules, 'y')), 'the install ran');
+  assert.match(prepare().stdout, /node_modules is current/);
+
+  const earlier = new Date(Date.now() - 60_000);
+  fs.utimesSync(modules, earlier, earlier);
+  r = prepare();
+  assert.match(r.stdout, /older than bun\.lock: bun install --frozen-lockfile/);
+  assert.equal(r.status, 0, r.stdout);
+  assert.ok(fs.statSync(modules).mtimeMs > fs.statSync(path.join(dir, 'bun.lock')).mtimeMs, 'the install stamps node_modules newer than the lock');
+  assert.match(prepare().stdout, /node_modules is current/);
 });
 
 test('prepare-tree.mjs stops without factory.json on the branch and installs when node_modules is missing or stale', () => {
