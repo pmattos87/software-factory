@@ -4,7 +4,8 @@
 //   node release-assets.mjs production <version>   the final Release's assets
 // <version> in each files pattern is replaced by the version. Prints one matching file
 // per line; exits 1, naming the pattern, when a pattern matches nothing or the set
-// isn't configured. The old single release.assets is the production set.
+// isn't configured. The old single release.assets is the production set. A project
+// with no release.assets at all ships no files: it prints nothing and exits 0 (SF-152).
 
 import fs from 'node:fs';
 import { loadConfig, CONFIG_PATH } from './lib/config.mjs';
@@ -21,6 +22,7 @@ if (!config) {
   process.exit(1);
 }
 const { assets } = config.release;
+if (assets.none) process.exit(0);
 const set = assets[name];
 if (!set || !set.files.length) {
   console.log(set ? `FAIL ${assetKey(assets, name)}.files is empty` : `FAIL release.assets.${name} is not set`);

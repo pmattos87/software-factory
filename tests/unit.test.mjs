@@ -260,9 +260,10 @@ test('check-release --client refuses environments that share a data folder', () 
 });
 
 test('asset sets read the old single shape as production and fill in the version', () => {
-  assert.deepEqual(assetSets({ build: ['b'], files: ['f'] }), { single: true, beta: null, production: { build: ['b'], files: ['f'] } });
-  assert.deepEqual(assetSets(undefined), { single: true, beta: null, production: { build: [], files: [] } });
-  assert.deepEqual(assetSets({ beta: { build: ['s'] }, production: { files: ['p'] } }), { single: false, beta: { build: ['s'], files: [] }, production: { build: [], files: ['p'] } });
+  assert.deepEqual(assetSets({ build: ['b'], files: ['f'] }), { single: true, none: false, beta: null, production: { build: ['b'], files: ['f'] } });
+  assert.deepEqual(assetSets(undefined), { single: true, none: true, beta: null, production: { build: [], files: [] } });
+  assert.deepEqual(assetSets({}), { single: true, none: false, beta: null, production: { build: [], files: [] } }, 'an empty assets key is set, just empty');
+  assert.deepEqual(assetSets({ beta: { build: ['s'] }, production: { files: ['p'] } }), { single: false, none: false, beta: { build: ['s'], files: [] }, production: { build: [], files: ['p'] } });
   assert.deepEqual(assetPatterns({ files: ['a_<version>_*.exe', 'b/<version>/<version>.zip', 'c.msi'] }, '1.6.0'), ['a_1.6.0_*.exe', 'b/1.6.0/1.6.0.zip', 'c.msi']);
   assert.deepEqual(assetPatterns(null, '1.6.0'), []);
 });
@@ -297,6 +298,17 @@ test('release-assets lists only the set and version asked for', () => {
   assert.equal(r.status, 1);
   assert.equal(r.stdout, 'FAIL release.assets.beta is not set\n');
   assert.equal(run('nightly', '1.6.0').status, 2);
+
+  // SF-152: no release.assets at all is a project that ships no files (AT, a web app).
+  write(undefined);
+  r = run('production', '1.0.0');
+  assert.equal(r.status, 0, r.stdout);
+  assert.equal(r.stdout, '', 'nothing to attach');
+  // An assets key that is there but names no files is still a mistake.
+  write({ build: ['y'], files: [] });
+  r = run('production', '1.0.0');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, 'FAIL release.assets.files is empty\n');
 });
 
 test('release documents go under the Releases root, by project, Release and beta', () => {
