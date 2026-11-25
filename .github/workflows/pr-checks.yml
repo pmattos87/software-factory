@@ -94,8 +94,12 @@ jobs:
         kind: ${{ fromJSON(needs.plan.outputs.kinds) }}
     # A docs-only diff still gets a gates check, so rulesets that require it can merge,
     # but none of its steps run; its summary says why.
+    # The project's own commands run here, so the Factory's scripts move out of its
+    # workspace first (SF-152): a whole-repo lint or test glob must never reach them.
     env:
       SKIP: ${{ matrix.kind == 'gates' && needs.plan.outputs.docs-only == 'true' }}
+      FACTORY_HOME: ${{ github.workspace }}/../factory-scripts
+      FACTORY: ${{ github.workspace }}/../factory-scripts/plugin/scripts
     steps:
       - name: Docs-only diff
         if: env.SKIP == 'true'
@@ -105,7 +109,10 @@ jobs:
         with: { ref: '${{ env.HEAD_SHA }}' }
       - uses: actions/checkout@v4
         if: env.SKIP != 'true'
-        with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts }
+        with: { repository: pmattos87/software-factory, ref: '${{ inputs.factory-ref }}', path: .factory, sparse-checkout: plugin/scripts, persist-credentials: false }
+      - name: Move the Factory scripts out of the workspace
+        if: env.SKIP != 'true'
+        run: rm -rf "$FACTORY_HOME" && mv .factory "$FACTORY_HOME"
       - name: System packages
         if: env.SKIP != 'true' && needs.plan.outputs.apt != ''
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ${{ needs.plan.outputs.apt }}
